@@ -14,9 +14,12 @@ int main(int argc, char **argv, const char **envp){
 
     void *dwarfinfo = NULL;
 
-    if(sym_init_with_dwarf_file(file, &dwarfinfo)){
-        printf("something went wrong\n");
-    }
+    if(sym_init_with_dwarf_file(file, &dwarfinfo, &error))
+        printf("error: %s\n", error);
+
+    free(error);
+    
+    sym_end(&dwarfinfo);
 
     return 0;
 }
