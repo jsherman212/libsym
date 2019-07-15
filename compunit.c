@@ -76,35 +76,6 @@ int sym_load_compilation_units(dwarfinfo_t *dwarfinfo, char **error){
 
         unit->cu_root_die = root_die;
 
-        /*
-        ret = dwarf_siblingof_b(dwarfinfo->di_dbg, NULL, is_info,
-                &unit->cu_die, &d_error);
-        //dprintf("ret %d\n", ret);
-
-        if(ret == DW_DLV_ERROR){
-            asprintf(error, "dwarf_siblingof_b: %s",
-                    dwarf_errmsg_by_number(ret));
-            return 1;
-        }
-
-        ret = dwarf_srcfiles(unit->cu_die, &unit->cu_srcfiles,
-                &unit->cu_srcfilecnt, &d_error);
-
-        if(ret == DW_DLV_ERROR){
-            asprintf(error, "dwarf_srcfiles: %s",
-                    dwarf_errmsg_by_number(ret));
-            return 1;
-        }
-
-        ret = dwarf_diename(unit->cu_die, &unit->cu_diename, &d_error);
-
-        if(ret == DW_DLV_ERROR){
-            asprintf(error, "dwarf_diename: %s",
-                    dwarf_errmsg_by_number(ret));
-            return 1;
-        }
-        */
-
         linkedlist_add(dwarfinfo->di_compunits, unit);
 
         dwarfinfo->di_numcompunits++;

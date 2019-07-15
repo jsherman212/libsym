@@ -5,7 +5,9 @@
 
 #include "common.h"
 
-typedef struct {
+typedef struct die die_t;
+
+struct die {
     Dwarf_Die die_dwarfdie;
 
     Dwarf_Half die_tag;
@@ -15,7 +17,17 @@ typedef struct {
     Dwarf_Signed die_attrcnt;
 
     char *die_diename;
-} die_t;
+
+    Dwarf_Half die_haschildren;
+
+    /* non-NULL when this die is a parent */
+    /* NULL terminated array of children */
+    die_t **die_children;
+    int die_numchildren;
+
+    /* non-NULL when this die is a child */
+    die_t *die_parent;
+};
 
 static int copy_die_info(die_t **die){
     Dwarf_Error d_error;
@@ -23,33 +35,90 @@ static int copy_die_info(die_t **die){
     int ret = dwarf_diename((*die)->die_dwarfdie, &((*die)->die_diename),
             &d_error);
 
+    //dprintf("ret %d\n", ret);
     if(ret)
         return ret;
 
     ret = dwarf_tag((*die)->die_dwarfdie, &((*die)->die_tag), &d_error);
 
+    //dprintf("ret %d\n", ret);
     if(ret)
         return ret;
 
     ret = dwarf_get_TAG_name((*die)->die_tag, &((*die)->die_tagname));
 
+    //dprintf("ret %d\n", ret);
     if(ret)
         return ret;
 
     ret = dwarf_attrlist((*die)->die_dwarfdie, &((*die)->die_attrs),
             &((*die)->die_attrcnt), &d_error);
 
+    //dprintf("ret %d\n", ret);
+    if(ret)
+        return ret;
+
+    ret = dwarf_die_abbrev_children_flag((*die)->die_dwarfdie,
+            &((*die)->die_haschildren));
+
+    //dprintf("ret %d\n", ret);
     if(ret)
         return ret;
 
     return 0;
 }
 
+static Dwarf_Half die_has_children(Dwarf_Die d){
+    Dwarf_Half result = 0;
+    dwarf_die_abbrev_children_flag(d, &result);
+
+    return result;
+}
+
+static void describe_die(die_t *die){
+    if(!die)
+        return;
+
+    printf("<%s>: '%s', parent: %d", die->die_tagname,
+            die->die_diename, die->die_haschildren);
+
+    if(!die->die_haschildren && die->die_parent){
+        printf(", parent name '%s'\n", die->die_parent->die_diename);
+    }
+    else if(!die->die_haschildren && !die->die_parent){
+        printf(", no parent???\n");
+    }
+    else if(die->die_haschildren){
+        printf(", %d children\n", die->die_numchildren);
+    }
+    else{
+        putchar('\n');
+    }
+
+    /*
+    if(die->die_haschildren && die->die_parent){
+        printf(", parent name '%s'\n",
+                die->die_parent->die_diename?die->die_parent->die_diename:"NULL??");
+    }
+    else{
+        putchar('\n');
+    }
+    */
+}
+
 static die_t *create_new_die(Dwarf_Die based_on){
+    // XXX do I don't have to waste time setting stuff to NULL
     die_t *d = calloc(1, sizeof(die_t));
     d->die_dwarfdie = based_on;
 
     copy_die_info(&d);
+
+    if(d->die_haschildren){
+        d->die_children = malloc(sizeof(die_t));
+        d->die_children[0] = NULL;
+
+        d->die_numchildren = 0;
+    }
 
     return d;
 }
@@ -59,20 +128,43 @@ static inline void write_tabs(int cnt){
         putchar('\t');
 }
 
+static die_t *CUR_PARENT = NULL;
+
 /* credit is due: simplereader.c */
-static void construct_die_tree(dwarfinfo_t *dwarfinfo, Dwarf_Die die,
+static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *current,
         int level){
     int is_info = 1;
-    Dwarf_Die child_die, cur_die = die;
+    Dwarf_Die child_die, cur_die = current->die_dwarfdie;
     Dwarf_Error d_error;
 
     int ret = DW_DLV_OK;
 
-    die_t *my_die = create_new_die(cur_die);
+    //write_tabs(level);
+    if(current->die_haschildren){
+        /*
+        printf("this die '%s' has children, setting CUR_PARENT\n",
+                current->die_diename);
+                */
+        CUR_PARENT = current;
+    }
+    else{
+        /*
+        printf("this die '%s' doesn't have children, CUR_PARENT is '%s',"
+                " adding child die\n",
+                current->die_diename, CUR_PARENT->die_diename);
+        */
+        die_t **children = realloc(CUR_PARENT->die_children,
+                (++CUR_PARENT->die_numchildren) * sizeof(die_t));
+        CUR_PARENT->die_children = children;
+        CUR_PARENT->die_children[CUR_PARENT->die_numchildren - 1] = current;
+        CUR_PARENT->die_children[CUR_PARENT->die_numchildren] = NULL;
 
-    if(my_die->die_diename){
+        current->die_parent = CUR_PARENT;
+    }
+
+    if(current->die_diename){
         write_tabs(level);
-        printf("<%s>: '%s'\n", my_die->die_tagname, my_die->die_diename);
+        describe_die(current);
     }
 
     for(;;){
@@ -83,20 +175,8 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, Dwarf_Die die,
             exit(1);
         }
         else if(ret == DW_DLV_OK){
-            //write_tabs(level);
-            //dprintf("got a child, recursing\n");
-            construct_die_tree(dwarfinfo, child_die, level+1);
-            /*
-            die_t *my_die = calloc(1, sizeof(die_t));
-            my_die->die_dwarfdie = child_die;
-            copy_die_info(&my_die);
-            */
-
-            /*die_t *my_die = create_new_die(child_die);
-            if(my_die->die_diename){
-                write_tabs(level);
-                printf("die name: '%s'\n", my_die->die_diename);
-            }*/
+            die_t *cd = create_new_die(child_die);
+            construct_die_tree(dwarfinfo, cd, level+1);
             dwarf_dealloc(dwarfinfo->di_dbg, child_die, DW_DLA_DIE);
         }
 
@@ -111,34 +191,46 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, Dwarf_Die die,
             exit(1);
         }
         else if(ret == DW_DLV_NO_ENTRY){
-          //  write_tabs(level);
+            //write_tabs(level);
             //dprintf("done at this level, breaking\n");
             break;
         }
 
-        if(cur_die != die){
+        if(cur_die != current->die_dwarfdie){
             dwarf_dealloc(dwarfinfo->di_dbg, cur_die, DW_DLA_DIE);
         }
-    
+
         cur_die = sibling_die;
 
-        /*
-        die_t *my_die = calloc(1, sizeof(die_t));
-        my_die->die_dwarfdie = cur_die;
-        copy_die_info(&my_die);
-        */
-        die_t *my_die = create_new_die(cur_die);
-        
-        if(my_die->die_diename){
-            write_tabs(level);
-            printf("<%s>: '%s'\n", my_die->die_tagname, my_die->die_diename);
-        }
-        
+        die_t *current = create_new_die(cur_die);
 
-        
         //write_tabs(level);
-        //printf("die name: '%s'\n", my_die->die_diename?my_die->die_diename:"NULL");
-        
+        if(current->die_haschildren){
+            /*
+            printf("this die '%s' has children, setting CUR_PARENT\n",
+                    current->die_diename);
+                    */
+            CUR_PARENT = current;
+        }
+        else{
+            /*
+            printf("this die '%s' doesn't have children, CUR_PARENT is '%s',"
+                    " adding child die\n",
+                    current->die_diename, CUR_PARENT->die_diename);
+            */
+            die_t **children = realloc(CUR_PARENT->die_children,
+                    (++CUR_PARENT->die_numchildren) * sizeof(die_t));
+            CUR_PARENT->die_children = children;
+            CUR_PARENT->die_children[CUR_PARENT->die_numchildren - 1] = current;
+            CUR_PARENT->die_children[CUR_PARENT->die_numchildren] = NULL;
+
+            current->die_parent = CUR_PARENT;
+        }
+
+        if(current->die_diename){
+            write_tabs(level);
+            describe_die(current);
+        }
     }
 }
 
@@ -155,14 +247,17 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
     int is_info = 1;
     Dwarf_Error d_error;
 
+    /*
     die_t *root_die = *_root_die;
 
     // XXX calloc so if a dwarf func fails I can still test for NULL
     if(!root_die)
         root_die = calloc(1, sizeof(die_t));
+    */
 
+    Dwarf_Die cu_rootdie;
     int ret = dwarf_siblingof_b(dwarfinfo->di_dbg, NULL, is_info,
-            &root_die->die_dwarfdie, &d_error);
+            &cu_rootdie, &d_error);
 
     if(ret == DW_DLV_ERROR){
         asprintf(error, "dwarf_siblingof_b: %s",
@@ -170,14 +265,17 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
         return 1;
     }
 
+    /*
     if((ret = copy_die_info(&root_die))){
         asprintf(error, "copy_die_info: %s",
                 dwarf_errmsg_by_number(ret));
         return 1;
-    }
+    }*/
+
+    die_t *root_die = create_new_die(cu_rootdie);
 
     //printf("die name: '%s'\n", root_die->die_diename);
-    construct_die_tree(dwarfinfo, root_die->die_dwarfdie, 0);
+    construct_die_tree(dwarfinfo, root_die, 0);
     putchar('\n');
 
     *_root_die = root_die;

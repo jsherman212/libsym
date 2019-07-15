@@ -42,7 +42,7 @@ int sym_init_with_dwarf_file(const char *file, dwarfinfo_t **_dwarfinfo,
     if(sym_load_compilation_units(dwarfinfo, error))
         return 1;
 
-    display_compilation_units(dwarfinfo);
+    //display_compilation_units(dwarfinfo);
 
     *_dwarfinfo = dwarfinfo;
 
