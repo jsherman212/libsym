@@ -3,6 +3,8 @@
 
 #include <libdwarf.h>
 
+#include "strext.h"
+
 typedef struct {
     /* Our DWARF file */
     int di_fd;

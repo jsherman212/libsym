@@ -4,6 +4,7 @@
 #include <libdwarf.h>
 
 #include "common.h"
+#include "die.h"
 #include "linkedlist.h"
 
 typedef struct {
@@ -12,9 +13,19 @@ typedef struct {
     Dwarf_Half cu_address_size;
     Dwarf_Unsigned cu_next_header_offset;
 
+    void *cu_root_die;
+    //Dwarf_Die cu_root_die;
+    //char *cu_root_diename;
 
+    //struct linkedlist *cu_child_dies;
+
+    char **cu_srcfiles;
+    Dwarf_Signed cu_srcfilecnt;
+
+    
 } compunit_t;
 
+/*
 static compunit_t *create_compile_unit(Dwarf_Unsigned hdrlen,
         Dwarf_Unsigned abbrev_off, Dwarf_Half addrsz){
     compunit_t *unit = malloc(sizeof(compunit_t));
@@ -24,6 +35,11 @@ static compunit_t *create_compile_unit(Dwarf_Unsigned hdrlen,
 
     return unit;
 }
+*/
+
+static void load_child_dies(dwarfinfo_t *dwarfinfo, char **error){
+
+}
 
 int sym_load_compilation_units(dwarfinfo_t *dwarfinfo, char **error){
     for(;;){
@@ -32,9 +48,10 @@ int sym_load_compilation_units(dwarfinfo_t *dwarfinfo, char **error){
         Dwarf_Sig8 sig;
         Dwarf_Unsigned typeoff;
         Dwarf_Error d_error;
+        int is_info = 1;
 
         int ret = dwarf_next_cu_header_d(dwarfinfo->di_dbg,
-                1, &unit->cu_header_len, &ver, &unit->cu_abbrev_offset,
+                is_info, &unit->cu_header_len, &ver, &unit->cu_abbrev_offset,
                 &unit->cu_address_size, &len_sz, &ext_sz, &sig,
                 &typeoff, &unit->cu_next_header_offset, &hdr_type,
                 &d_error);
@@ -50,6 +67,44 @@ int sym_load_compilation_units(dwarfinfo_t *dwarfinfo, char **error){
             return 0;
         }
 
+        void *root_die = NULL;
+        initialize_and_build_die_tree_from_root_die(dwarfinfo, &root_die,
+                error);
+        
+        if(*error)
+            return 1;
+
+        unit->cu_root_die = root_die;
+
+        /*
+        ret = dwarf_siblingof_b(dwarfinfo->di_dbg, NULL, is_info,
+                &unit->cu_die, &d_error);
+        //dprintf("ret %d\n", ret);
+
+        if(ret == DW_DLV_ERROR){
+            asprintf(error, "dwarf_siblingof_b: %s",
+                    dwarf_errmsg_by_number(ret));
+            return 1;
+        }
+
+        ret = dwarf_srcfiles(unit->cu_die, &unit->cu_srcfiles,
+                &unit->cu_srcfilecnt, &d_error);
+
+        if(ret == DW_DLV_ERROR){
+            asprintf(error, "dwarf_srcfiles: %s",
+                    dwarf_errmsg_by_number(ret));
+            return 1;
+        }
+
+        ret = dwarf_diename(unit->cu_die, &unit->cu_diename, &d_error);
+
+        if(ret == DW_DLV_ERROR){
+            asprintf(error, "dwarf_diename: %s",
+                    dwarf_errmsg_by_number(ret));
+            return 1;
+        }
+        */
+
         linkedlist_add(dwarfinfo->di_compunits, unit);
 
         dwarfinfo->di_numcompunits++;
@@ -63,7 +118,21 @@ void display_compilation_units(dwarfinfo_t *dwarfinfo){
     LL_FOREACH(dwarfinfo->di_compunits, current){
         compunit_t *unit = current->data;
 
-        dprintf("Compilation unit %d/%d:\n"
+        /*
+        printf("Compilation unit %d/%d:\n"
+                "\tcu_header_len: %#llx\n"
+                "\tcu_abbrev_offset: %#llx\n"
+                "\tcu_address_size: %#x\n"
+                "\tcu_next_header_offset: %#llx\n"
+                "\tcu_diename: '%s'\n" 
+                "\tcu_srcfilecnt: %lld\n",
+                cnt++, dwarfinfo->di_numcompunits,
+                unit->cu_header_len, unit->cu_abbrev_offset,
+                unit->cu_address_size, unit->cu_next_header_offset,
+                unit->cu_diename?unit->cu_diename:"NULL",
+                unit->cu_srcfilecnt);
+                */
+        printf("Compilation unit %d/%d:\n"
                 "\tcu_header_len: %#llx\n"
                 "\tcu_abbrev_offset: %#llx\n"
                 "\tcu_address_size: %#x\n"
@@ -71,7 +140,28 @@ void display_compilation_units(dwarfinfo_t *dwarfinfo){
                 cnt++, dwarfinfo->di_numcompunits,
                 unit->cu_header_len, unit->cu_abbrev_offset,
                 unit->cu_address_size, unit->cu_next_header_offset);
+        printf("\tdebugging information entries:\n");
+        display_from_root_die(unit->cu_root_die);
+        putchar('\n');
+        
+        
+        /*
+        char *desc = NULL;
+        
+        asprintf(&desc, "Compilation unit %d/%d:\n"
+                "\tcu_header_len: %#llx\n"
+                "\tcu_abbrev_offset: %#llx\n"
+                "\tcu_address_size: %#x\n"
+                "\tcu_next_header_offset: %#llx\n",
+                cnt++, dwarfinfo->di_numcompunits,
+                unit->cu_header_len, unit->cu_abbrev_offset,
+                unit->cu_address_size, unit->cu_next_header_offset);
+        asprintf(&desc, "\tdebugging information entries:\n");
+
+        asprintf(&desc, "Compilation unit %d/%d:\n", cnt++, dwarfinfo->di_numcompunits);
+        printf("%s", desc);
+
+        free(desc);
+        */
     }
-
-
 }
