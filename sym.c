@@ -6,18 +6,11 @@
 #include <unistd.h>
 
 #include "common.h"
+#include "compunit.h"
 #include "linkedlist.h"
 #include "stack.h"
 
 #include <libdwarf.h>
-
-typedef struct {
-    /* Our DWARF file */
-    int di_fd;
-
-    Dwarf_Debug di_dbg;
-
-} dwarfinfo_t;
 
 // XXX replace all asprintf with concat when done
 
@@ -42,7 +35,15 @@ int sym_init_with_dwarf_file(const char *file, dwarfinfo_t **_dwarfinfo,
     }
 
     dprintf("_E %d\n", _E);
-    
+
+    dwarfinfo->di_compunits = linkedlist_new();
+    dwarfinfo->di_numcompunits = 0;
+
+    if(sym_load_compilation_units(dwarfinfo, error))
+        return 1;
+
+    display_compilation_units(dwarfinfo);
+
     *_dwarfinfo = dwarfinfo;
 
     return 0;
