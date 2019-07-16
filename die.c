@@ -9,18 +9,6 @@
 
 typedef struct die die_t;
 
-/*
-   typedef struct {
-   Dwarf_Die dvd_dwarfdie;
-   Dwarf_Unsigned dvd_dietypeoffset;
-
-
-
-// XXX DW_at_location
-
-} dievardata_t;
-*/
-
 struct die {
     Dwarf_Die die_dwarfdie;
     Dwarf_Unsigned die_dieoffset;
@@ -44,13 +32,17 @@ struct die {
     die_t *die_parent;
 
     /* If this DIE describes any sort of variable/parameter in the
-     * debugged program, die_dievardata will be non-NULL.
+     * debugged program, the following two are initialized.
      */
-    //dievardata_t *die_dievardata;
-    //int die_diedescribesdatatype;
-    //die_t **die_diedatatypes;
     Dwarf_Unsigned die_datatypedieoffset;
     Dwarf_Die die_datatypedie;
+
+    /* If this DIE represents an inlined subroutine, the following
+     * three are initialized.
+     */
+    int die_inlinedsub;
+    Dwarf_Unsigned die_aboriginoff;
+    die_t *die_aborigin;
 };
 
 static inline void write_tabs(int cnt){
@@ -58,15 +50,21 @@ static inline void write_tabs(int cnt){
         putchar('\t');
 }
 
-static int lex_block_count = 0, anon_struct_count = 0, anon_union_count = 0;
+static int lex_block_count = 0, anon_struct_count = 0, anon_union_count = 0,
+           anon_enum_count = 0;
 
 static int is_anonymous_type(die_t *die){
     return (die->die_tag == DW_TAG_structure_type ||
-            die->die_tag == DW_TAG_union_type) &&
+            die->die_tag == DW_TAG_union_type ||
+            die->die_tag == DW_TAG_enumeration_type) &&
         !die->die_diename;
 }
 
-static int copy_die_info(die_t **die){
+static int is_inlined_subroutine(die_t *die){
+    return die->die_tag == DW_TAG_inlined_subroutine;
+}
+
+static int copy_die_info(dwarfinfo_t *dwarfinfo, die_t **die){
     Dwarf_Error d_error;
 
     int ret = dwarf_diename((*die)->die_dwarfdie, &((*die)->die_diename),
@@ -95,8 +93,24 @@ static int copy_die_info(die_t **die){
             type = "UNION";
             cnter = &anon_union_count;
         }
+        else if((*die)->die_tag == DW_TAG_enumeration_type){
+            type = "ENUM";
+            cnter = &anon_enum_count;
+        }
 
         asprintf(&((*die)->die_diename), "ANON_%s_%d", type, (*cnter)++);
+    }
+    else if(is_inlined_subroutine(*die)){
+        (*die)->die_inlinedsub = 1;
+
+        Dwarf_Attribute typeattr;
+        ret = dwarf_attr((*die)->die_dwarfdie, DW_AT_abstract_origin,
+                &typeattr, &d_error);
+
+        if(ret == DW_DLV_OK){
+            dwarf_global_formref(typeattr, &((*die)->die_aboriginoff),
+                    &d_error);
+        }
     }
 
     //dprintf("ret %d\n", ret);
@@ -130,6 +144,21 @@ static int copy_die_info(die_t **die){
             &((*die)->die_haschildren));
 
 
+    Dwarf_Attribute typeattr;
+    ret = dwarf_attr((*die)->die_dwarfdie, DW_AT_type,
+            &typeattr, &d_error);
+
+    if(ret == DW_DLV_OK){
+        dwarf_global_formref(typeattr, &((*die)->die_datatypedieoffset),
+                &d_error);
+        ret = dwarf_offdie(dwarfinfo->di_dbg, (*die)->die_datatypedieoffset,
+                &((*die)->die_datatypedie), &d_error);
+
+        if(ret){
+            printf("dwarf_die: %s\n", dwarf_errmsg_by_number(ret));
+        }
+    }
+
     //dprintf("ret %d\n", ret);
     /*if(ret)
       return ret;
@@ -147,6 +176,7 @@ static Dwarf_Half die_has_children(Dwarf_Die d){
 #define GREEN "\033[32m"
 #define RED "\033[31m"
 #define CYAN "\033[36m"
+#define MAGENTA "\033[35m"
 #define RESET "\033[39m"
 
 static int cnt = 1;
@@ -162,6 +192,10 @@ static void describe_die(die_t *die, int level){
     if(level == 1)
         cnt++;
 
+    // XXX later, abstract origin is '%s'
+    if(die->die_inlinedsub)
+        printf(", abstract origin %s%#llx%s", MAGENTA, die->die_aboriginoff, RESET);
+
     if(!die->die_haschildren && die->die_parent){
         printf(", parent DIE name '"GREEN"%s"RESET"'\n", die->die_parent->die_diename);
     }
@@ -169,23 +203,21 @@ static void describe_die(die_t *die, int level){
         printf(", no parent???\n");
     }
     else if(die->die_haschildren && die->die_parent){
-        printf(", %d children, parent DIE name '"GREEN"%s"RESET"'\n", die->die_numchildren,
-                die->die_parent->die_diename);
+        printf(", parent DIE name '"GREEN"%s"RESET"'\n", die->die_parent->die_diename);
     }
     else{
         putchar('\n');
     }
 }
 
-static die_t *create_new_die(Dwarf_Die based_on){
+static die_t *create_new_die(dwarfinfo_t *dwarfinfo, Dwarf_Die based_on){
     // XXX do I don't have to waste time setting stuff to NULL
     die_t *d = calloc(1, sizeof(die_t));
     d->die_dwarfdie = based_on;
 
-    //if(copy_die_info(&d))
-    //  return NULL;
-
-    copy_die_info(&d);
+    // XXX some of the stuff in this function will fail,
+    // it is fine
+    copy_die_info(dwarfinfo, &d);
 
     if(d->die_haschildren){
         d->die_children = malloc(sizeof(die_t));
@@ -199,10 +231,10 @@ static die_t *create_new_die(Dwarf_Die based_on){
 
 static int add_die_to_tree(die_t *die){
     const Dwarf_Half accepted_tags[] = {
-        DW_TAG_compile_unit, DW_TAG_subprogram, DW_TAG_formal_parameter,
-        DW_TAG_enumeration_type, DW_TAG_enumerator, DW_TAG_structure_type,
-        DW_TAG_union_type, DW_TAG_member, DW_TAG_variable, DW_TAG_typedef,
-        DW_TAG_lexical_block
+        DW_TAG_compile_unit, DW_TAG_subprogram, DW_TAG_inlined_subroutine,
+        DW_TAG_formal_parameter, DW_TAG_enumeration_type, DW_TAG_enumerator,
+        DW_TAG_structure_type, DW_TAG_union_type, DW_TAG_member,
+        DW_TAG_variable, DW_TAG_lexical_block
     };
 
     size_t count = sizeof(accepted_tags) / sizeof(Dwarf_Half);
@@ -215,7 +247,6 @@ static int add_die_to_tree(die_t *die){
     return 0;
 }
 
-
 static die_t *CUR_PARENTS[1000] = {0};
 
 /* credit is due: simplereader.c */
@@ -223,6 +254,7 @@ static die_t *CUR_PARENTS[1000] = {0};
 /* This tree only contains DIEs with these tags:
  *      DW_TAG_compile_unit
  *      DW_TAG_subprogram
+ *      DW_TAG_inlined_subroutine
  *      DW_TAG_formal_parameter
  *      DW_TAG_enumeration_type / DW_TAG_enumerator
  *      DW_TAG_structure_type
@@ -230,7 +262,6 @@ static die_t *CUR_PARENTS[1000] = {0};
  *      DW_TAG_member
  *      DW_TAG_variable
  *      DW_TAG_lexical_block
- *      ... and various tags which describe data types.
  *
  * It becomes too much to keep track off every possible
  * aspect of a DIE, and we're able to retrieve the info we need if
@@ -244,12 +275,10 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
 
     int ret = DW_DLV_OK;
 
+    // XXX function later
     if(add_die_to_tree(current)){
-        /* Keep track of the parent DIEs we visit. */
-        //if(current->die_haschildren)
-          //  CUR_PARENTS[level] = current;
-
         if(current->die_haschildren){
+            /* Keep track of the parent DIEs we visit. */
             CUR_PARENTS[level] = current;
 
             if(level > 0){
@@ -289,21 +318,6 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
             }
         }
 
-        Dwarf_Attribute typeattr;
-        ret = dwarf_attr(current->die_dwarfdie, DW_AT_type,
-                &typeattr, &d_error);
-
-        if(ret == DW_DLV_OK){
-            dwarf_global_formref(typeattr, &current->die_datatypedieoffset,
-                    &d_error);
-            ret = dwarf_offdie(dwarfinfo->di_dbg, current->die_datatypedieoffset,
-                    &current->die_datatypedie, &d_error);
-
-            if(ret){
-                printf("dwarf_die: %s\n", dwarf_errmsg_by_number(ret));
-            }
-        }
-
         write_tabs(level);
         describe_die(current, level);
     }
@@ -316,7 +330,7 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
             exit(1);
         }
         else if(ret == DW_DLV_OK){
-            die_t *cd = create_new_die(child_die);
+            die_t *cd = create_new_die(dwarfinfo, child_die);
             construct_die_tree(dwarfinfo, root, parent, cd, level+1);
             dwarf_dealloc(dwarfinfo->di_dbg, child_die, DW_DLA_DIE);
         }
@@ -340,7 +354,7 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
 
         cur_die = sibling_die;
 
-        die_t *current = create_new_die(cur_die);
+        die_t *current = create_new_die(dwarfinfo, cur_die);
 
         if(add_die_to_tree(current)){
             if(current->die_haschildren){
@@ -380,21 +394,6 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
                 }
             }
 
-            Dwarf_Attribute typeattr;
-            ret = dwarf_attr(current->die_dwarfdie, DW_AT_type,
-                    &typeattr, &d_error);
-
-            if(ret == DW_DLV_OK){
-                dwarf_global_formref(typeattr, &current->die_datatypedieoffset,
-                        &d_error);
-                ret = dwarf_offdie(dwarfinfo->di_dbg, current->die_datatypedieoffset,
-                        &current->die_datatypedie, &d_error);
-
-                if(ret){
-                    printf("dwarf_die: %s\n", dwarf_errmsg_by_number(ret));
-                }
-            }
-
             write_tabs(level);
             describe_die(current, level);
         }
@@ -424,7 +423,7 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
         return 1;
     }
 
-    die_t *root_die = create_new_die(cu_rootdie);
+    die_t *root_die = create_new_die(dwarfinfo, cu_rootdie);
     memset(CUR_PARENTS, 0, sizeof(CUR_PARENTS));
     CUR_PARENTS[0] = root_die;
 
