@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <libdwarf.h>
 
@@ -75,24 +76,29 @@ static Dwarf_Half die_has_children(Dwarf_Die d){
     return result;
 }
 
+#define GREEN "\033[32m"
+#define RED "\033[31m"
+#define RESET "\033[39m"
+
 static int cnt = 1;
 static void describe_die(die_t *die, int level){
     if(!die)
         return;
 
-    printf("<%d> <%s>: '%s', parent: %d", level, die->die_tagname,
-            die->die_diename, die->die_haschildren);
+    printf("<%d> <%s>: '%s%s%s', is parent: %d", level, die->die_tagname,
+            die->die_haschildren?GREEN:"", die->die_diename, die->die_haschildren?RESET:"",
+            die->die_haschildren);
     if(level == 1)
         cnt++;
 
     if(!die->die_haschildren && die->die_parent){
-        printf(", parent DIE name '%s'\n", die->die_parent->die_diename);
+        printf(", parent DIE name '"GREEN"%s"RESET"'\n", die->die_parent->die_diename);
     }
     else if(!die->die_haschildren && !die->die_parent){
         printf(", no parent???\n");
     }
     else if(die->die_haschildren && die->die_parent){
-        printf(", %d children, parent DIE name '%s'\n", die->die_numchildren,
+        printf(", %d children, parent DIE name '"GREEN"%s"RESET"'\n", die->die_numchildren,
                 die->die_parent->die_diename);
     }
     else{
@@ -140,10 +146,9 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
 
     int ret = DW_DLV_OK;
 
-    /* As we go along, keep track of the DIEs we visit,
-     * as they could be potential parents.
-     */
-    CUR_PARENTS[level] = current;
+    /* Keep track of the parent DIEs we visit. */
+    if(current->die_haschildren)
+        CUR_PARENTS[level] = current;
 
     //write_tabs(level);
     if(current->die_haschildren){
@@ -179,6 +184,17 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
         int sub = 1;
         die_t *parent = CUR_PARENTS[level - sub];
 
+        /*
+        write_tabs(level);
+        if(parent){
+            printf("\033[32mparent for DIE '%s' is '%s'\033[39m\n",
+                    current->die_diename, parent->die_diename);
+        }
+        else{
+            printf("\033[31mparent is NULL, searching backwards in CUR_PARENTS\033[39m\n");
+        }
+        */
+
         /* find the closest valid parent */
         while(!parent)
             parent = CUR_PARENTS[level - (++sub)];
@@ -191,6 +207,12 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
             parent->die_children[parent->die_numchildren] = NULL;
 
             current->die_parent = parent;
+
+            /*
+            write_tabs(level);
+            printf("current DIE parent's name '%s' actual DIE parent name '%s'\n",
+                    current->die_parent->die_diename, parent->die_diename);
+                    */
         }
     }
 
@@ -225,7 +247,10 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
         else if(ret == DW_DLV_NO_ENTRY){
             //write_tabs(level);
             //dprintf("done at this level, breaking\n");
-            //PARENT_IDX--;
+
+            /* Discard the parent we were on. */
+            // XXX XXX remove comment to fix bug
+            CUR_PARENTS[level] = NULL;
             break;
         }
 
@@ -237,7 +262,8 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
         die_t *current = create_new_die(cur_die);
 
         //printf("current %p\n", current);
-        CUR_PARENTS[level] = current;
+        if(current && current->die_haschildren)
+            CUR_PARENTS[level] = current;
 
         //write_tabs(level);
         if(current && current->die_haschildren){
@@ -266,6 +292,16 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
             */
             int sub = 1;
             die_t *parent = CUR_PARENTS[level - sub];
+            /*
+            write_tabs(level);
+            if(parent){
+                printf("\033[32mparent for DIE '%s' is '%s'\033[39m\n",
+                        current->die_diename, parent->die_diename);
+            }
+            else{
+                printf("\033[31mparent is NULL, searching backwards in CUR_PARENTS\033[39m\n");
+            }
+            */
 
             while(!parent)
                 parent = CUR_PARENTS[level - (++sub)];
@@ -282,6 +318,11 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
                 //current->die_parent = CUR_PARENT;
                 //current->die_parent = CUR_PARENTS[level - 1];
                 current->die_parent = parent;
+                /*
+                write_tabs(level);
+                printf("current DIE parent's name '%s' actual DIE parent name '%s'\n",
+                        current->die_parent->die_diename, parent->die_diename);
+                        */
             }
         }
 
@@ -316,7 +357,11 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
     }
 
     die_t *root_die = create_new_die(cu_rootdie);
+    memset(CUR_PARENTS, 0, sizeof(CUR_PARENTS));
     CUR_PARENTS[0] = root_die;
+
+    //if(strcmp(root_die->die_diename, "source/dbgops.c") != 0)
+    //    return 0;
     construct_die_tree(dwarfinfo, root_die, NULL, root_die, 0);
     putchar('\n');
     printf("Children for root DIE '%s':\n", root_die->die_diename);
@@ -333,7 +378,7 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
             nonnull++;
     }
 
-    printf("%d children, and %d nonnull children\n",
+    printf("%d children, and %d nonnull children\n\n",
             root_die->die_numchildren, nonnull);
 
     *_root_die = root_die;
