@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <dwarf.h>
 #include <libdwarf.h>
 
 #include "common.h"
@@ -12,7 +13,7 @@ struct die {
     Dwarf_Die die_dwarfdie;
 
     Dwarf_Half die_tag;
-    const char *die_tagname;
+    char *die_tagname;
 
     Dwarf_Attribute *die_attrs;
     Dwarf_Signed die_attrcnt;
@@ -30,43 +31,69 @@ struct die {
     die_t *die_parent;
 };
 
+static inline void write_tabs(int cnt){
+    for(int i=0; i<cnt; i++)
+        putchar('\t');
+}
+
+static int lex_block_count = 0;
+
 static int copy_die_info(die_t **die){
     Dwarf_Error d_error;
 
     int ret = dwarf_diename((*die)->die_dwarfdie, &((*die)->die_diename),
             &d_error);
 
-    //dprintf("ret %d\n", ret);
-    if(ret)
-        return ret;
+    /*
+    if(ret){
+        printf("dwarf_diename: error: %s\n", dwarf_errmsg_by_number(ret));
+    }
+    */
 
+    //dprintf("ret %d\n", ret);
+    /*if(ret)
+        return ret;
+    */
     ret = dwarf_tag((*die)->die_dwarfdie, &((*die)->die_tag), &d_error);
 
     //dprintf("ret %d\n", ret);
-    if(ret)
+    /*if(ret)
         return ret;
+    */
+    ret = dwarf_get_TAG_name((*die)->die_tag,
+            (const char **)&((*die)->die_tagname));
 
-    ret = dwarf_get_TAG_name((*die)->die_tag, &((*die)->die_tagname));
+    /* Label these ourselves */
+    if(!(*die)->die_diename){
+        if((*die)->die_tag == DW_TAG_lexical_block){
+            asprintf(&((*die)->die_diename),
+                    "LEXICAL_BLOCK_%d (auto-named by libsym)",
+                    lex_block_count++);
+
+           // (*die)->die_diename = "LEXICAL_BLOCK (auto-named by libsym)";
+
+        }
+    }
 
     //dprintf("ret %d\n", ret);
-    if(ret)
+    /*if(ret)
         return ret;
-
+    */
     ret = dwarf_attrlist((*die)->die_dwarfdie, &((*die)->die_attrs),
             &((*die)->die_attrcnt), &d_error);
 
     //dprintf("ret %d\n", ret);
-    if(ret)
+    /*if(ret)
         return ret;
-
+    */
     ret = dwarf_die_abbrev_children_flag((*die)->die_dwarfdie,
             &((*die)->die_haschildren));
 
     //dprintf("ret %d\n", ret);
-    if(ret)
+    /*if(ret)
         return ret;
-
-    return 0;
+        */
+    return ret;
 }
 
 static Dwarf_Half die_has_children(Dwarf_Die d){
@@ -111,8 +138,10 @@ static die_t *create_new_die(Dwarf_Die based_on){
     die_t *d = calloc(1, sizeof(die_t));
     d->die_dwarfdie = based_on;
 
-    if(copy_die_info(&d))
-        return NULL;
+    //if(copy_die_info(&d))
+      //  return NULL;
+
+    copy_die_info(&d);
 
     if(d->die_haschildren){
         d->die_children = malloc(sizeof(die_t));
@@ -124,10 +153,23 @@ static die_t *create_new_die(Dwarf_Die based_on){
     return d;
 }
 
-static inline void write_tabs(int cnt){
-    for(int i=0; i<cnt; i++)
-        putchar('\t');
+static int add_die_to_tree(die_t *die){
+    const Dwarf_Half accepted_tags[] = {
+        DW_TAG_compile_unit, DW_TAG_subprogram, DW_TAG_formal_parameter,
+        DW_TAG_enumeration_type, DW_TAG_enumerator, DW_TAG_structure_type,
+        DW_TAG_member, DW_TAG_variable, DW_TAG_typedef, DW_TAG_lexical_block
+    };
+
+    size_t count = sizeof(accepted_tags) / sizeof(Dwarf_Half);
+
+    for(size_t i=0; i<count; i++){
+        if(die->die_tag == accepted_tags[i])
+            return 1;
+    }
+
+    return 0;
 }
+
 
 //static die_t *CUR_PARENT = NULL;
 static die_t *CUR_PARENTS[200] = {0};
@@ -135,90 +177,71 @@ static die_t *CUR_PARENTS[200] = {0};
 //static int SUB_FROM_LEVEL = 0;
 
 /* credit is due: simplereader.c */
+
+/* This tree only contains DIEs with these tags:
+ *      DW_TAG_compile_unit
+ *      DW_TAG_subprogram
+ *      DW_TAG_formal_parameter
+ *      DW_TAG_enumeration_type / DW_TAG_enumerator
+ *      DW_TAG_structure_type / DW_TAG_member
+ *      DW_TAG_variable
+ *      DW_TAG_typedef
+ *      DW_TAG_lexical_block
+ *
+ * It becomes too much to keep track off every possible
+ * aspect of a DIE, and we're able to retrieve the info we need if
+ * we already have a target DIE.
+ */
 static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
         die_t *parent, die_t *current, int level){
-    if(!current)
-        return;
-
     int is_info = 1;
     Dwarf_Die child_die, cur_die = current->die_dwarfdie;
     Dwarf_Error d_error;
 
     int ret = DW_DLV_OK;
 
-    /* Keep track of the parent DIEs we visit. */
-    if(current->die_haschildren)
-        CUR_PARENTS[level] = current;
+    if(add_die_to_tree(current)){
+        /* Keep track of the parent DIEs we visit. */
+        if(current->die_haschildren)
+            CUR_PARENTS[level] = current;
 
-    //write_tabs(level);
-    if(current->die_haschildren){
-        /*
-        printf("this die '%s' has children, setting CUR_PARENT\n",
-                current->die_diename);
-                */
-        //printf("*****this die '%s' has children and its parent is '%s'\n",
-          //      current->die_diename, CUR_PARENTS[0]->die_diename);
-        if(current != root){
-            // XXX ... this can be assumed?
-            die_t *parent = CUR_PARENTS[0];
-            die_t **children = realloc(parent->die_children,
-                    (++parent->die_numchildren) * sizeof(die_t));
-            parent->die_children = children;
-            parent->die_children[parent->die_numchildren - 1] = current;
-            parent->die_children[parent->die_numchildren] = NULL;
+        if(current->die_haschildren){
+            if(current != root){
+                // XXX ... this can be assumed?
+                die_t *parent = CUR_PARENTS[0];
+                die_t **children = realloc(parent->die_children,
+                        (++parent->die_numchildren) * sizeof(die_t));
+                parent->die_children = children;
+                parent->die_children[parent->die_numchildren - 1] = current;
+                parent->die_children[parent->die_numchildren] = NULL;
 
-            current->die_parent = parent;
-        }
-        //CUR_PARENTS[level] = current;
-        //CUR_PARENTS[PARENT_IDX++] = current;
-        //CUR_PARENT = current;
-    }
-    else{
-        /*
-        printf("this die '%s' doesn't have children, CUR_PARENT is '%s',"
-                " adding child die\n",
-                current->die_diename, CUR_PARENT->die_diename);
-        */
-
-        /* previous parent */
-        int sub = 1;
-        die_t *parent = CUR_PARENTS[level - sub];
-
-        /*
-        write_tabs(level);
-        if(parent){
-            printf("\033[32mparent for DIE '%s' is '%s'\033[39m\n",
-                    current->die_diename, parent->die_diename);
+                current->die_parent = parent;
+            }
         }
         else{
-            printf("\033[31mparent is NULL, searching backwards in CUR_PARENTS\033[39m\n");
+            /* previous parent */
+            int sub = 1;
+            die_t *parent = CUR_PARENTS[level - sub];
+
+            /* find the closest valid parent */
+            while(parent && !parent->die_diename)//!parent)
+                parent = CUR_PARENTS[level - (++sub)];
+
+            if(parent){
+                die_t **children = realloc(parent->die_children,
+                        (++parent->die_numchildren) * sizeof(die_t));
+                parent->die_children = children;
+                parent->die_children[parent->die_numchildren - 1] = current;
+                parent->die_children[parent->die_numchildren] = NULL;
+
+                current->die_parent = parent;
+            }
         }
-        */
 
-        /* find the closest valid parent */
-        while(!parent)
-            parent = CUR_PARENTS[level - (++sub)];
-   
-        if(parent){
-            die_t **children = realloc(parent->die_children,
-                    (++parent->die_numchildren) * sizeof(die_t));
-            parent->die_children = children;
-            parent->die_children[parent->die_numchildren - 1] = current;
-            parent->die_children[parent->die_numchildren] = NULL;
-
-            current->die_parent = parent;
-
-            /*
+        if(current){
             write_tabs(level);
-            printf("current DIE parent's name '%s' actual DIE parent name '%s'\n",
-                    current->die_parent->die_diename, parent->die_diename);
-                    */
+            describe_die(current, level);
         }
-    }
-
-    if(current){
-        write_tabs(level);
-        describe_die(current, level);
     }
 
     for(;;){
@@ -234,8 +257,6 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
             dwarf_dealloc(dwarfinfo->di_dbg, child_die, DW_DLA_DIE);
         }
 
-        //write_tabs(level);
-        //dprintf("sibling die\n");
         Dwarf_Die sibling_die;
         ret = dwarf_siblingof_b(dwarfinfo->di_dbg, cur_die, is_info,
                 &sibling_die, &d_error);
@@ -245,9 +266,6 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
             exit(1);
         }
         else if(ret == DW_DLV_NO_ENTRY){
-            //write_tabs(level);
-            //dprintf("done at this level, breaking\n");
-
             /* Discard the parent we were on. */
             // XXX XXX remove comment to fix bug
             CUR_PARENTS[level] = NULL;
@@ -261,74 +279,42 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
 
         die_t *current = create_new_die(cur_die);
 
-        //printf("current %p\n", current);
-        if(current && current->die_haschildren)
-            CUR_PARENTS[level] = current;
+        if(add_die_to_tree(current)){
+            if(current && current->die_haschildren)
+                CUR_PARENTS[level] = current;
 
-        //write_tabs(level);
-        if(current && current->die_haschildren){
-           /* 
-            printf("*****this die '%s' has children, setting CUR_PARENT\n",
-                    current->die_diename);
-                    */
-
-            //printf("*****this die '%s' has children and its parent is '%s'\n",
-              //      current->die_diename, CUR_PARENTS[0]->die_diename);
-            
-            die_t *parent = CUR_PARENTS[0];
-            die_t **children = realloc(parent->die_children,
-                    (++parent->die_numchildren) * sizeof(die_t));
-            parent->die_children = children;
-            parent->die_children[parent->die_numchildren - 1] = current;
-            parent->die_children[parent->die_numchildren] = NULL;
-
-            current->die_parent = parent;
-        }
-        else if(current && !current->die_haschildren){
-            /*
-            printf("this die '%s' doesn't have children, CUR_PARENT is '%s',"
-                    " adding child die\n",
-                    current->die_diename, CUR_PARENT->die_diename);
-            */
-            int sub = 1;
-            die_t *parent = CUR_PARENTS[level - sub];
-            /*
-            write_tabs(level);
-            if(parent){
-                printf("\033[32mparent for DIE '%s' is '%s'\033[39m\n",
-                        current->die_diename, parent->die_diename);
-            }
-            else{
-                printf("\033[31mparent is NULL, searching backwards in CUR_PARENTS\033[39m\n");
-            }
-            */
-
-            while(!parent)
-                parent = CUR_PARENTS[level - (++sub)];
-            //die_t *parent = CUR_PARENTS[PARENT_IDX - 1];
-            //CUR_PARENT = CUR_PARENTS[level - 1];
-
-            if(parent){
+            if(current && current->die_haschildren){
+                die_t *parent = CUR_PARENTS[0];
                 die_t **children = realloc(parent->die_children,
                         (++parent->die_numchildren) * sizeof(die_t));
                 parent->die_children = children;
                 parent->die_children[parent->die_numchildren - 1] = current;
                 parent->die_children[parent->die_numchildren] = NULL;
 
-                //current->die_parent = CUR_PARENT;
-                //current->die_parent = CUR_PARENTS[level - 1];
                 current->die_parent = parent;
-                /*
-                write_tabs(level);
-                printf("current DIE parent's name '%s' actual DIE parent name '%s'\n",
-                        current->die_parent->die_diename, parent->die_diename);
-                        */
             }
-        }
+            else if(current && !current->die_haschildren){
+                int sub = 1;
+                die_t *parent = CUR_PARENTS[level - sub];
 
-        if(current){
-            write_tabs(level);
-            describe_die(current, level);
+                while(parent && !parent->die_diename)//!parent)
+                    parent = CUR_PARENTS[level - (++sub)];
+
+                if(parent){
+                    die_t **children = realloc(parent->die_children,
+                            (++parent->die_numchildren) * sizeof(die_t));
+                    parent->die_children = children;
+                    parent->die_children[parent->die_numchildren - 1] = current;
+                    parent->die_children[parent->die_numchildren] = NULL;
+
+                    current->die_parent = parent;
+                }
+            }
+
+            if(current){
+                write_tabs(level);
+                describe_die(current, level);
+            }
         }
     }
 }
