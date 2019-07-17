@@ -7,6 +7,14 @@
 
 #include "common.h"
 
+#define GREEN "\033[32m"
+#define RED "\033[31m"
+#define CYAN "\033[36m"
+#define MAGENTA "\033[35m"
+#define LIGHT_YELLOW "\033[93m"
+#define LIGHT_BLUE "\033[94m" // XXX purple?
+#define RESET "\033[39m"
+
 typedef struct die die_t;
 
 struct die {
@@ -35,8 +43,10 @@ struct die {
      * debugged program, the following four are initialized.
      */
     Dwarf_Unsigned die_datatypedieoffset;
+
+    /* top level data type DIE */
     Dwarf_Die die_datatypedie;
-    Dwarf_Unsigned die_databytesize;
+    Dwarf_Unsigned die_databytessize;
     char *die_datatypename;
 
     /* If this DIE represents an inlined subroutine, the following
@@ -47,12 +57,21 @@ struct die {
 };
 
 static inline void write_tabs(int cnt){
-    for(int i=0; i<cnt; i++)
+    for(int i=0; i<cnt; i++){
+       // printf("    ");
         putchar('\t');
+        //putchar(' ');
+        //putchar(' ');
+    }
 }
 
 static int lex_block_count = 0, anon_struct_count = 0, anon_union_count = 0,
            anon_enum_count = 0;
+
+// XXX if this DIE represents a struct or union. is aggregate the right word?
+static int is_aggregate_type(Dwarf_Half tag){
+    return tag == DW_TAG_structure_type || tag == DW_TAG_union_type;
+}
 
 static int is_anonymous_type(die_t *die){
     return (die->die_tag == DW_TAG_structure_type ||
@@ -63,6 +82,175 @@ static int is_anonymous_type(die_t *die){
 
 static int is_inlined_subroutine(die_t *die){
     return die->die_tag == DW_TAG_inlined_subroutine;
+}
+
+static void generate_data_type_info(Dwarf_Debug dbg, Dwarf_Die die,
+        size_t maxlen, size_t curlen, char *outtype, Dwarf_Unsigned *outsize,
+        int level){
+    if(curlen >= maxlen){
+        write_tabs(level);
+        printf("preventing buffer overflow, returning...\n");
+        return;
+    }
+
+    char *type = NULL;
+    Dwarf_Error d_error = NULL;
+    dwarf_diename(die, &type, &d_error);
+
+    int ret = dwarf_errno(d_error);
+    if(ret){
+        write_tabs(level);
+        printf("dwarf_diename: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
+        return;
+    }
+
+    d_error = NULL;
+
+    Dwarf_Half tag;
+    dwarf_tag(die, &tag, &d_error);
+
+    ret = dwarf_errno(d_error);
+    if(ret){
+        write_tabs(level);
+        printf("dwarf_tag: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
+        return;
+    }
+
+    if(tag == DW_TAG_base_type ||
+            tag == DW_TAG_structure_type ||
+            tag == DW_TAG_union_type){
+        strcat(outtype, "D");
+        // XXX initialize outsize here
+        write_tabs(level);
+        printf("Level %d: at end of DIE chain, got type: '"RED"%s"RESET"'\n", level, type);
+        //printf("hit end of DIE type chain, returning...\n");
+        return;
+    }
+
+    d_error = NULL;
+
+    Dwarf_Attribute attr = NULL;
+    dwarf_attr(die, DW_AT_type, &attr, &d_error);
+
+    ret = dwarf_errno(d_error);
+
+    if(ret){
+        write_tabs(level);
+        printf("dwarf_attr: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
+        return;
+    }
+
+    Dwarf_Unsigned offset = 0;
+
+    write_tabs(level);
+    printf("attr %p\n", attr);
+    dwarf_global_formref(attr, &offset, &d_error);
+
+    ret = dwarf_errno(d_error);
+
+    if(ret){
+        write_tabs(level);
+        printf("dwarf_global_formref: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
+        return;
+    }
+
+    d_error = NULL;
+
+    Dwarf_Die typedie = NULL;
+    dwarf_offdie(dbg, offset, &typedie, &d_error);
+
+    if(ret){
+        write_tabs(level);
+        printf("dwarf_offdie: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
+        return;
+    }
+
+    write_tabs(level);
+    printf("Level %d: got type: '"RED"%s"RESET"'\n", level, type);
+
+
+    generate_data_type_info(dbg, typedie, maxlen, curlen, outtype,
+            outsize, level+1);
+
+    write_tabs(level);
+    printf("Level %d: returning, type is '"RED"%s"RESET"'\n", level, type);
+
+    strcat(outtype, "A");
+    
+}
+
+// XXX generates the data type name (ex: const char **) and
+// fetches whatever sizeof(data type) yields on the host machine
+static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, die_t **die){
+    Dwarf_Error d_error;
+    Dwarf_Attribute attr;
+    int ret = dwarf_attr((*die)->die_dwarfdie, DW_AT_type, &attr, &d_error);
+
+    if(ret != DW_DLV_OK){
+//        dprintf("dwarf_attr ret != DW_DLV_OK, returning\n");
+        return;
+    }
+
+    dwarf_global_formref(attr, &((*die)->die_datatypedieoffset),
+            &d_error);
+    ret = dwarf_offdie(dwarfinfo->di_dbg, (*die)->die_datatypedieoffset,
+            &((*die)->die_datatypedie), &d_error);
+
+    if(ret != DW_DLV_OK){
+  //      dprintf("no data type die, returning\n");
+        return;
+    }
+
+    Dwarf_Half tag;
+    dwarf_tag((*die)->die_datatypedie, &tag, &d_error);
+    
+    /* If this DIE already represents a base type (int, double, etc)
+     * or an enum, we're done.
+     */
+    if(tag == DW_TAG_base_type || tag == DW_TAG_enumeration_type){
+        dwarf_diename((*die)->die_datatypedie, &((*die)->die_datatypename),
+              &d_error);
+        dwarf_bytesize((*die)->die_datatypedie, &((*die)->die_databytessize),
+                &d_error);
+        return;
+    }
+
+    // XXX
+    if(tag == DW_TAG_typedef){
+        dprintf("ignoring typedefs for now\n");
+        return;
+    }
+
+    // XXX: struct or union. Special case (TODO)
+   // if(is_aggregate_type(tag)){
+     //   return;
+    //}
+
+    /* Otherwise, we have to follow the chain of DIEs that make up this
+     * data type. For example:
+     *      char **argv;
+     *
+     *      DW_TAG_pointer_type ->
+     *          DW_TAG_pointer_type ->
+     *              DW_TAG_base_type (char)
+     */
+    enum { maxlen = 256 };
+    size_t curlen = 0;
+
+    char name[maxlen] = {0};
+    Dwarf_Unsigned size = 0;
+
+    
+    generate_data_type_info(dwarfinfo->di_dbg, (*die)->die_datatypedie,
+            maxlen, curlen, name, &size, 0);
+    
+    (*die)->die_databytessize = size;
+    (*die)->die_datatypename = strdup(name);
+
+    //char *name = NULL;
+
+    //dwarf_diename((*die)->die_datatypedie, &name, &d_error);
+
 }
 
 static int copy_die_info(dwarfinfo_t *dwarfinfo, die_t **die){
@@ -146,41 +334,8 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, die_t **die){
     ret = dwarf_die_abbrev_children_flag((*die)->die_dwarfdie,
             &((*die)->die_haschildren));
 
+    get_die_data_type_info(dwarfinfo, die);
 
-    Dwarf_Attribute attr;
-    ret = dwarf_attr((*die)->die_dwarfdie, DW_AT_type, &attr, &d_error);
-
-    if(ret == DW_DLV_OK){
-        dwarf_global_formref(attr, &((*die)->die_datatypedieoffset),
-                &d_error);
-        ret = dwarf_offdie(dwarfinfo->di_dbg, (*die)->die_datatypedieoffset,
-                &((*die)->die_datatypedie), &d_error);
-
-        if(ret == DW_DLV_OK){
-            dwarf_diename((*die)->die_datatypedie, &((*die)->die_datatypename),
-                    &d_error);
-        }
-
-        ret = dwarf_bytesize((*die)->die_datatypedie, &((*die)->die_databytesize),
-                    &d_error);
-
-        /*
-        ret = dwarf_attr((*die)->die_datatypedie, DW_AT_byte_size, &attr,
-                &d_error);
-
-        //ret = dwarf_errno(d_error);
-        printf("dwarf_attr: %s (%#x)\n", dwarf_errmsg_by_number(ret), ret);
-        //if(ret){
-            //printf("dwarf_attr: %s (%#x)\n", dwarf_errmsg_by_number(ret), ret);
-        //}
-
-        if(ret == DW_DLV_OK){
-            ret = dwarf_global_formref(attr, &((*die)->die_databytesize), &d_error);
-            ret = dwarf_errno(d_error);
-            printf("dwarf_global_formref: %s (%#x)\n", dwarf_errmsg_by_number(ret), ret);
-        }
-        */
-    }
 
     //dprintf("ret %d\n", ret);
     /*if(ret)
@@ -203,21 +358,14 @@ static char *get_die_data_type(die_t *die){
     dwarf_diename(die->die_datatypedie, &name, &d_error);
     /*Dwarf_Unsigned ret = dwarf_errno(d_error);
 
-    if(ret){
-        printf("dwarf_diename: %s (%#llx)\n", dwarf_errmsg_by_number(ret), ret);
+      if(ret){
+      printf("dwarf_diename: %s (%#llx)\n", dwarf_errmsg_by_number(ret), ret);
 
-    }*/
+      }*/
 
     return name;
 }
 
-#define GREEN "\033[32m"
-#define RED "\033[31m"
-#define CYAN "\033[36m"
-#define MAGENTA "\033[35m"
-#define LIGHT_GREEN "\033[93m"
-#define LIGHT_BLUE "\033[94m" // XXX purple?
-#define RESET "\033[39m"
 
 static int cnt = 1;
 static void describe_die(die_t *die, int level){
@@ -233,10 +381,9 @@ static void describe_die(die_t *die, int level){
         cnt++;
 
     if(die->die_datatypedieoffset!=0){
-        //char *type = get_die_data_type(die);
         printf(", type = '"LIGHT_BLUE"%s"RESET"',"
-                " sizeof('"LIGHT_BLUE"%s"RESET"') = "LIGHT_GREEN"%#llx"RESET"",
-                die->die_datatypename, die->die_datatypename, die->die_databytesize);
+                " sizeof('"LIGHT_BLUE"%s"RESET"') = "LIGHT_YELLOW"%#llx"RESET"",
+                die->die_datatypename, die->die_datatypename, die->die_databytessize);
     }
 
     // XXX later, abstract origin is '%s'
@@ -475,7 +622,7 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
     CUR_PARENTS[0] = root_die;
 
     //if(strcmp(root_die->die_diename, "source/cmd/documentation.c") != 0)
-      //  return 0;
+    //  return 0;
     construct_die_tree(dwarfinfo, root_die, NULL, root_die, 0);
 
     // XXX XXX second time around, connect die_datatypes
