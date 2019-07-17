@@ -14,15 +14,8 @@ typedef struct {
     Dwarf_Unsigned cu_next_header_offset;
 
     void *cu_root_die;
-    //Dwarf_Die cu_root_die;
-    //char *cu_root_diename;
-
-    //struct linkedlist *cu_child_dies;
-
     char **cu_srcfiles;
     Dwarf_Signed cu_srcfilecnt;
-
-    
 } compunit_t;
 
 /*
@@ -68,8 +61,8 @@ int sym_load_compilation_units(dwarfinfo_t *dwarfinfo, char **error){
         }
 
         void *root_die = NULL;
-        initialize_and_build_die_tree_from_root_die(dwarfinfo, &root_die,
-                error);
+        initialize_and_build_die_tree_from_root_die(dwarfinfo, unit,
+                &root_die, error);
         
         if(*error)
             return 1;
@@ -135,4 +128,11 @@ void display_compilation_units(dwarfinfo_t *dwarfinfo){
         free(desc);
         */
     }
+}
+
+Dwarf_Half compunit_get_address_size(compunit_t *unit){
+    if(!unit)
+        return 0;
+
+    return unit->cu_address_size;
 }

@@ -6,6 +6,7 @@
 #include <libdwarf.h>
 
 #include "common.h"
+#include "compunit.h"
 
 #define GREEN "\033[32m"
 #define RED "\033[31m"
@@ -84,15 +85,30 @@ static int is_inlined_subroutine(die_t *die){
     return die->die_tag == DW_TAG_inlined_subroutine;
 }
 
-static void generate_data_type_info(Dwarf_Debug dbg, Dwarf_Die die,
-        size_t maxlen, size_t curlen, char *outtype, Dwarf_Unsigned *outsize,
-        int level){
-    if(curlen >= maxlen){
-        write_tabs(level);
-        printf("preventing buffer overflow, returning...\n");
-        return;
-    }
+#define CONST_TYPE_STR "const"
+#define PTR_TYPE_STR "*"
+#define RESTRICT_TYPE_STR "restrict"
+#define ARRAY_TYPE_STR "[]"
+#define UNKNOWN_TYPE_STR "<unknown>"
 
+static const char *dwarf_type_tag_to_string(Dwarf_Half tag){
+    switch(tag){
+        case DW_TAG_const_type:
+            return CONST_TYPE_STR; 
+        case DW_TAG_pointer_type:
+            return PTR_TYPE_STR;
+        case DW_TAG_restrict_type:
+            return RESTRICT_TYPE_STR;
+        case DW_TAG_array_type:
+            return ARRAY_TYPE_STR;
+        default:
+            return UNKNOWN_TYPE_STR;
+    };
+}
+
+static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
+        Dwarf_Die die, size_t maxlen, size_t curlen, char *outtype,
+        Dwarf_Unsigned *outsize, int level){
     char *type = NULL;
     Dwarf_Error d_error = NULL;
     dwarf_diename(die, &type, &d_error);
@@ -119,11 +135,23 @@ static void generate_data_type_info(Dwarf_Debug dbg, Dwarf_Die die,
     if(tag == DW_TAG_base_type ||
             tag == DW_TAG_structure_type ||
             tag == DW_TAG_union_type){
-        strcat(outtype, "D");
-        // XXX initialize outsize here
+        if(type){
+            size_t outtype_len = strlen(outtype);
+
+            if(outtype_len + strlen(type) >= maxlen){
+                write_tabs(level);
+                printf("preventing buffer overflow, returning...\n");
+                return;
+            }
+
+            strcat(outtype, type);
+        }
+        // XXX initialize outsize here, or no?
         write_tabs(level);
         printf("Level %d: at end of DIE chain, got type: '"RED"%s"RESET"'\n", level, type);
-        //printf("hit end of DIE type chain, returning...\n");
+        
+        dwarf_bytesize(die, outsize, NULL);
+
         return;
     }
 
@@ -143,7 +171,6 @@ static void generate_data_type_info(Dwarf_Debug dbg, Dwarf_Die die,
     Dwarf_Unsigned offset = 0;
 
     write_tabs(level);
-    printf("attr %p\n", attr);
     dwarf_global_formref(attr, &offset, &d_error);
 
     ret = dwarf_errno(d_error);
@@ -169,19 +196,55 @@ static void generate_data_type_info(Dwarf_Debug dbg, Dwarf_Die die,
     printf("Level %d: got type: '"RED"%s"RESET"'\n", level, type);
 
 
-    generate_data_type_info(dbg, typedie, maxlen, curlen, outtype,
-            outsize, level+1);
+    generate_data_type_info(dbg, compile_unit, typedie, maxlen, curlen,
+            outtype, outsize, level+1);
 
     write_tabs(level);
     printf("Level %d: returning, type is '"RED"%s"RESET"'\n", level, type);
 
-    strcat(outtype, "A");
-    
+    const char *type_tag_string = dwarf_type_tag_to_string(tag);
+    const size_t type_tag_len = strlen(type_tag_string);
+
+    size_t outtype_len = strlen(outtype);
+
+    int is_typedef = tag == DW_TAG_typedef;
+    int append_space = (outtype_len > 0 && outtype[outtype_len - 1] != '*') &&
+        !is_typedef;
+    int overflow_amount = outtype_len + type_tag_len;
+
+    if(append_space)
+        overflow_amount++;
+
+    if(overflow_amount >= maxlen){
+        write_tabs(level);
+        printf("preventing buffer overflow, returning...\n");
+        return;
+    }
+
+    /* If our current DIE is a typedef, this function will follow
+     * (and append, without this check) the typedef types in the DIE chain.
+     * As we return, we'll go up the DIE chain and see the "true" type
+     * last. So we use strncpy to replace the contents of outtype instead
+     * of appending.
+     */
+    if(is_typedef){
+        strncpy(outtype, type, strlen(type));
+    }
+    else{
+        if(append_space)
+            strcat(outtype, " ");
+
+        strncat(outtype, type_tag_string, type_tag_len);
+    }
+    if(tag == DW_TAG_pointer_type){
+        *outsize = compunit_get_address_size(compile_unit);
+    }
 }
 
 // XXX generates the data type name (ex: const char **) and
 // fetches whatever sizeof(data type) yields on the host machine
-static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, die_t **die){
+static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
+        die_t **die){
     Dwarf_Error d_error;
     Dwarf_Attribute attr;
     int ret = dwarf_attr((*die)->die_dwarfdie, DW_AT_type, &attr, &d_error);
@@ -215,16 +278,10 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, die_t **die){
         return;
     }
 
-    // XXX
-    if(tag == DW_TAG_typedef){
+    /*if(tag == DW_TAG_typedef){
         dprintf("ignoring typedefs for now\n");
         return;
-    }
-
-    // XXX: struct or union. Special case (TODO)
-   // if(is_aggregate_type(tag)){
-     //   return;
-    //}
+    }*/
 
     /* Otherwise, we have to follow the chain of DIEs that make up this
      * data type. For example:
@@ -239,10 +296,9 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, die_t **die){
 
     char name[maxlen] = {0};
     Dwarf_Unsigned size = 0;
-
     
-    generate_data_type_info(dwarfinfo->di_dbg, (*die)->die_datatypedie,
-            maxlen, curlen, name, &size, 0);
+    generate_data_type_info(dwarfinfo->di_dbg, compile_unit,
+            (*die)->die_datatypedie, maxlen, curlen, name, &size, 0);
     
     (*die)->die_databytessize = size;
     (*die)->die_datatypename = strdup(name);
@@ -253,7 +309,8 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, die_t **die){
 
 }
 
-static int copy_die_info(dwarfinfo_t *dwarfinfo, die_t **die){
+static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
+        die_t **die){
     Dwarf_Error d_error;
 
     int ret = dwarf_diename((*die)->die_dwarfdie, &((*die)->die_diename),
@@ -334,7 +391,7 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, die_t **die){
     ret = dwarf_die_abbrev_children_flag((*die)->die_dwarfdie,
             &((*die)->die_haschildren));
 
-    get_die_data_type_info(dwarfinfo, die);
+    get_die_data_type_info(dwarfinfo, compile_unit, die);
 
 
     //dprintf("ret %d\n", ret);
@@ -404,14 +461,15 @@ static void describe_die(die_t *die, int level){
     }
 }
 
-static die_t *create_new_die(dwarfinfo_t *dwarfinfo, Dwarf_Die based_on){
+static die_t *create_new_die(dwarfinfo_t *dwarfinfo, void *compile_unit,
+        Dwarf_Die based_on){
     // XXX do I don't have to waste time setting stuff to NULL
     die_t *d = calloc(1, sizeof(die_t));
     d->die_dwarfdie = based_on;
 
     // XXX some of the stuff in this function will fail,
     // it is fine
-    copy_die_info(dwarfinfo, &d);
+    copy_die_info(dwarfinfo, compile_unit, &d);
 
     if(d->die_haschildren){
         d->die_children = malloc(sizeof(die_t));
@@ -461,8 +519,8 @@ static die_t *CUR_PARENTS[1000] = {0};
  * aspect of a DIE, and we're able to retrieve the info we need if
  * we already have a target DIE.
  */
-static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
-        die_t *parent, die_t *current, int level){
+static void construct_die_tree(dwarfinfo_t *dwarfinfo, void *compile_unit,
+        die_t *root, die_t *parent, die_t *current, int level){
     int is_info = 1;
     Dwarf_Die child_die, cur_die = current->die_dwarfdie;
     Dwarf_Error d_error;
@@ -524,8 +582,8 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
             exit(1);
         }
         else if(ret == DW_DLV_OK){
-            die_t *cd = create_new_die(dwarfinfo, child_die);
-            construct_die_tree(dwarfinfo, root, parent, cd, level+1);
+            die_t *cd = create_new_die(dwarfinfo, compile_unit, child_die);
+            construct_die_tree(dwarfinfo, compile_unit, root, parent, cd, level+1);
             dwarf_dealloc(dwarfinfo->di_dbg, child_die, DW_DLA_DIE);
         }
 
@@ -548,7 +606,7 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
 
         cur_die = sibling_die;
 
-        die_t *current = create_new_die(dwarfinfo, cur_die);
+        die_t *current = create_new_die(dwarfinfo, compile_unit, cur_die);
 
         if(add_die_to_tree(current)){
             if(current->die_haschildren){
@@ -603,7 +661,7 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, die_t *root,
  * The tree itself is represented by flattening it in prefix order.
  */
 int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
-        die_t **_root_die, char **error){
+        void *compile_unit, die_t **_root_die, char **error){
     int is_info = 1;
     Dwarf_Error d_error;
 
@@ -617,13 +675,13 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
         return 1;
     }
 
-    die_t *root_die = create_new_die(dwarfinfo, cu_rootdie);
+    die_t *root_die = create_new_die(dwarfinfo, compile_unit, cu_rootdie);
     memset(CUR_PARENTS, 0, sizeof(CUR_PARENTS));
     CUR_PARENTS[0] = root_die;
 
-    //if(strcmp(root_die->die_diename, "source/cmd/documentation.c") != 0)
-    //  return 0;
-    construct_die_tree(dwarfinfo, root_die, NULL, root_die, 0);
+    // if(strcmp(root_die->die_diename, "source/thread.c") != 0)
+        //return 0;
+    construct_die_tree(dwarfinfo, compile_unit, root_die, NULL, root_die, 0);
 
     // XXX XXX second time around, connect die_datatypes
 
