@@ -32,17 +32,18 @@ struct die {
     die_t *die_parent;
 
     /* If this DIE describes any sort of variable/parameter in the
-     * debugged program, the following two are initialized.
+     * debugged program, the following four are initialized.
      */
     Dwarf_Unsigned die_datatypedieoffset;
     Dwarf_Die die_datatypedie;
+    Dwarf_Unsigned die_databytesize;
+    char *die_datatypename;
 
     /* If this DIE represents an inlined subroutine, the following
-     * three are initialized.
+     * two are initialized.
      */
     int die_inlinedsub;
     Dwarf_Unsigned die_aboriginoff;
-    die_t *die_aborigin;
 };
 
 static inline void write_tabs(int cnt){
@@ -85,6 +86,8 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, die_t **die){
       */
     ret = dwarf_tag((*die)->die_dwarfdie, &((*die)->die_tag), &d_error);
 
+    // XXX: inside iosdbg get rid of this auto naming so I can test
+    // for NULL names for anonymous types
     if(is_anonymous_type(*die)){
         const char *type = "STRUCT";
         int *cnter = &anon_struct_count;
@@ -144,19 +147,39 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, die_t **die){
             &((*die)->die_haschildren));
 
 
-    Dwarf_Attribute typeattr;
-    ret = dwarf_attr((*die)->die_dwarfdie, DW_AT_type,
-            &typeattr, &d_error);
+    Dwarf_Attribute attr;
+    ret = dwarf_attr((*die)->die_dwarfdie, DW_AT_type, &attr, &d_error);
 
     if(ret == DW_DLV_OK){
-        dwarf_global_formref(typeattr, &((*die)->die_datatypedieoffset),
+        dwarf_global_formref(attr, &((*die)->die_datatypedieoffset),
                 &d_error);
         ret = dwarf_offdie(dwarfinfo->di_dbg, (*die)->die_datatypedieoffset,
                 &((*die)->die_datatypedie), &d_error);
 
-        if(ret){
-            printf("dwarf_die: %s\n", dwarf_errmsg_by_number(ret));
+        if(ret == DW_DLV_OK){
+            dwarf_diename((*die)->die_datatypedie, &((*die)->die_datatypename),
+                    &d_error);
         }
+
+        ret = dwarf_bytesize((*die)->die_datatypedie, &((*die)->die_databytesize),
+                    &d_error);
+
+        /*
+        ret = dwarf_attr((*die)->die_datatypedie, DW_AT_byte_size, &attr,
+                &d_error);
+
+        //ret = dwarf_errno(d_error);
+        printf("dwarf_attr: %s (%#x)\n", dwarf_errmsg_by_number(ret), ret);
+        //if(ret){
+            //printf("dwarf_attr: %s (%#x)\n", dwarf_errmsg_by_number(ret), ret);
+        //}
+
+        if(ret == DW_DLV_OK){
+            ret = dwarf_global_formref(attr, &((*die)->die_databytesize), &d_error);
+            ret = dwarf_errno(d_error);
+            printf("dwarf_global_formref: %s (%#x)\n", dwarf_errmsg_by_number(ret), ret);
+        }
+        */
     }
 
     //dprintf("ret %d\n", ret);
@@ -173,10 +196,27 @@ static Dwarf_Half die_has_children(Dwarf_Die d){
     return result;
 }
 
+static char *get_die_data_type(die_t *die){
+    Dwarf_Error d_error = NULL;
+
+    char *name = NULL;
+    dwarf_diename(die->die_datatypedie, &name, &d_error);
+    /*Dwarf_Unsigned ret = dwarf_errno(d_error);
+
+    if(ret){
+        printf("dwarf_diename: %s (%#llx)\n", dwarf_errmsg_by_number(ret), ret);
+
+    }*/
+
+    return name;
+}
+
 #define GREEN "\033[32m"
 #define RED "\033[31m"
 #define CYAN "\033[36m"
 #define MAGENTA "\033[35m"
+#define LIGHT_GREEN "\033[93m"
+#define LIGHT_BLUE "\033[94m" // XXX purple?
 #define RESET "\033[39m"
 
 static int cnt = 1;
@@ -192,6 +232,13 @@ static void describe_die(die_t *die, int level){
     if(level == 1)
         cnt++;
 
+    if(die->die_datatypedieoffset!=0){
+        //char *type = get_die_data_type(die);
+        printf(", type = '"LIGHT_BLUE"%s"RESET"',"
+                " sizeof('"LIGHT_BLUE"%s"RESET"') = "LIGHT_GREEN"%#llx"RESET"",
+                die->die_datatypename, die->die_datatypename, die->die_databytesize);
+    }
+
     // XXX later, abstract origin is '%s'
     if(die->die_inlinedsub)
         printf(", abstract origin %s%#llx%s", MAGENTA, die->die_aboriginoff, RESET);
@@ -200,7 +247,7 @@ static void describe_die(die_t *die, int level){
         printf(", parent DIE name '"GREEN"%s"RESET"'\n", die->die_parent->die_diename);
     }
     else if(!die->die_haschildren && !die->die_parent){
-        printf(", no parent???\n");
+        printf(", "RED"no parent???"RESET"\n");
     }
     else if(die->die_haschildren && die->die_parent){
         printf(", parent DIE name '"GREEN"%s"RESET"'\n", die->die_parent->die_diename);
