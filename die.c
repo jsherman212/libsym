@@ -401,10 +401,15 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
                         dwarf_errmsg_by_number(dret));
             }
 
-            // XXX don't forget to check for overflow
-            char arrdim[96] = {0};
-            snprintf(arrdim, sizeof(arrdim), "[%#llx]", nmemb);
-            strcat(outtype, arrdim);
+            /* Variable length array determined at runtime */
+            if(dret == DW_DLE_ATTR_FORM_BAD)
+                strcat(outtype, ARRAY_TYPE_STR);
+            else{
+                // XXX don't forget to check for overflow
+                char arrdim[96] = {0};
+                snprintf(arrdim, sizeof(arrdim), "[%#llx]", nmemb);
+                strcat(outtype, arrdim);
+            }
 
             Dwarf_Die sibling_die = NULL;
             d_error = NULL;
@@ -969,8 +974,8 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
     memset(CUR_PARENTS, 0, sizeof(CUR_PARENTS));
     CUR_PARENTS[0] = root_die;
 
-   //  if(strcmp(root_die->die_diename, "source/cmd/misccmd.c") != 0)
-     //    return 0;
+//     if(strcmp(root_die->die_diename, "source/cmd/memcmd.c") != 0)
+  //       return 0;
     construct_die_tree(dwarfinfo, compile_unit, root_die, NULL, root_die, 0);
 
     // XXX XXX second time around, connect die_datatypes
