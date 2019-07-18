@@ -146,7 +146,7 @@ static Dwarf_Die get_type_die(Dwarf_Debug dbg, Dwarf_Die from){
     ret = dwarf_errno(d_error);
 
     if(ret){
-        dprintf("dwarf_offset: %s\n", dwarf_errmsg_by_number(ret));
+    //    dprintf("dwarf_offset: %s\n", dwarf_errmsg_by_number(ret));
         return NULL;
     }
 
@@ -435,7 +435,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
     /* If our current DIE is a typedef, this function will follow
      * (and append, without this check) the typedef types in the DIE chain.
      * As we return, we'll go up the DIE chain and see the "true" type
-     * last. So we replace the typedef with its underlying type.
+     * last. So we replace the previous typedef with the current one.
      */
     if(is_typedef){
         //write_tabs(level);
@@ -475,21 +475,45 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         if(replaceat < 0 || !typedeftype)
             replaceat = 0;
 
+        /*
         write_tabs(level);
         printf("level %d: gonna replace '"RED"%s"RESET"' with '"GREEN"%s"RESET"' at outtype[%ld], outtype: '%s'\n",
                 level, typedeftype, type, replaceat, outtype);
+        */
 
         if(!typedeftype){
-            // XXX strcat? or strcpy
             strcpy(outtype, type);
             return;
         }
-        else if(outtypelen == typedeftypelen && strcmp(outtype, typedeftype) == 0){
+
+        if(outtypelen == 0){
             strcpy(outtype, type);
             return;
         }
         
-        //strcat(outtype, "A");
+        if(outtypelen == typedeftypelen && strcmp(outtype, typedeftype) == 0){
+            strcpy(outtype, type);
+            return;
+        }
+
+        long replacelen = outtypelen - typedeftypelen;
+
+        if(replacelen < 0)
+            replacelen = 0;
+
+       // write_tabs(level);
+       // printf("level %d, still here, gonna replace %ld bytes \n", level, replacelen);
+
+        memset(&outtype[replaceat], 0, replacelen * sizeof(char));
+
+       // write_tabs(level);
+       // printf("outtype is now '%s', appending...\n", outtype);
+
+        strcat(&outtype[replaceat], type);
+
+       // write_tabs(level);
+       // printf("appended, outtype is now '%s'\n", outtype);
+        
         return;
     }
 
@@ -505,37 +529,10 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         return;
     }
 
-    /* If our current DIE is a typedef, this function will follow
-     * (and append, without this check) the typedef types in the DIE chain.
-     * As we return, we'll go up the DIE chain and see the "true" type
-     * last. So we use strcpy to replace the contents of outtype instead
-     * of appending.
-     */
-    if(is_typedef){
-        printf("How did we get here?\n");
-        abort();
-        /*
-        write_tabs(level);
-        printf("is parameter? %d\n", is_parameter);
+    if(append_space)
+        strcat(outtype, " ");
 
-        if(is_parameter){
-            write_tabs(level);
-            printf("outtype '%s'\n", outtype);
-            //unsigned int erase_starting_at = outtype_len - strlen(
-            strcat(&outtype[outtype_len], type);
-            //outtype[strlen(outtype) - 1] = '\0';
-        }
-        */
-        //else{
-            strcpy(outtype, type);
-        //}
-    }
-    else{
-        if(append_space)
-            strcat(outtype, " ");
-
-        strncat(outtype, type_tag_string, type_tag_len);
-    }
+    strncat(outtype, type_tag_string, type_tag_len);
 }
 
 // XXX generates the data type name (ex: const char **) and
@@ -735,7 +732,6 @@ static void describe_die(die_t *die, int level){
         if(die->die_tag != DW_TAG_subprogram){
             printf(", sizeof('%s%s%s') = "LIGHT_YELLOW"%#llx"RESET"",
                     varnamecolorstr, die->die_diename, RESET, die->die_databytessize);
-
         }
     }
 
