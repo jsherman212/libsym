@@ -122,6 +122,12 @@ static const char *dwarf_type_tag_to_string(Dwarf_Half tag){
     };
 }
 
+static int should_append_tag(Dwarf_Half tag){
+    return tag == DW_TAG_const_type || tag == DW_TAG_restrict_type ||
+        tag == DW_TAG_volatile_type || tag == DW_TAG_subroutine_type ||
+        tag == DW_TAG_array_type || tag == DW_TAG_pointer_type;
+}
+
 static Dwarf_Die get_type_die(Dwarf_Debug dbg, Dwarf_Die from){
     Dwarf_Error d_error = NULL;
     Dwarf_Attribute attr = NULL;
@@ -157,8 +163,6 @@ static Dwarf_Die get_type_die(Dwarf_Debug dbg, Dwarf_Die from){
     return type_die;
 }
 
-
-
 static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         Dwarf_Die die, size_t maxlen, size_t curlen, char *outtype,
         Dwarf_Unsigned *outsize, int level){
@@ -168,7 +172,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
     int ret = dwarf_errno(d_error);
     if(ret){
-        strcat(outtype, "A");
+        //strcat(outtype, "A");
         write_tabs(level);
         printf("dwarf_diename: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
         return;
@@ -180,6 +184,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
     dwarf_tag(die, &tag, &d_error);
 
     ret = dwarf_errno(d_error);
+
     if(ret){
         write_tabs(level);
         printf("dwarf_tag: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
@@ -193,25 +198,97 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
     dwarf_dieoffset(die, &offset_1, &d_error);
 
+    if(tag == DW_TAG_formal_parameter){
+        Dwarf_Die typedie = get_type_die(dbg, die);
+
+        if(!typedie){
+            write_tabs(level);
+            printf("formal parameter typedie NULL? void?\n");
+            return;
+        }
+
+        generate_data_type_info(dbg, compile_unit, typedie, maxlen, curlen,
+                outtype, outsize, level+1);
+
+        return;
+    }
     //printf("die name '%s' tag name '%s' offset %#llx\n", type, tag_name1, offset_1);
 
     /* Function pointer */
     if(tag == DW_TAG_subroutine_type){
+        /*
         char tag_str[96] = {0};
+
         strcat(tag_str, "void ");
-
-
         strcat(tag_str, dwarf_type_tag_to_string(tag));
+        */
+        Dwarf_Die typedie = get_type_die(dbg, die);
+        
+        if(!typedie){
+            strcat(outtype, "void");
+        }
+        else{
+            generate_data_type_info(dbg, compile_unit, typedie, maxlen, curlen,
+                    outtype, outsize, level+1);
+        }
 
+        //strcat(outtype, "(<params>)");              
 
-        /*generate_data_type_info(dbg, compile_unit, typedie, maxlen, curlen,
-                outtype, outsize, level+1);
-            */
-        strcat(outtype, tag_str);
+        strcat(outtype, "(");
+
+        /* Get parameters */
+        Dwarf_Die parameter_die = NULL;
+        d_error = NULL;
+        dwarf_child(die, &parameter_die, &d_error);
+
+        ret = dwarf_errno(d_error);
+
+        if(ret){
+            write_tabs(level);
+            printf("dwarf_child: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
+            return;
+        }
+
+        /* No parameters */
+        if(!parameter_die){
+            strcat(outtype, "void)");
+            return;
+        }
+
+        int dret = 0;
+
+        while(ret != DW_DLV_NO_ENTRY){
+            generate_data_type_info(dbg, compile_unit, parameter_die, maxlen, curlen,
+                    outtype, outsize, level+1);
+
+            Dwarf_Die sibling_die = NULL;
+            d_error = NULL;
+            int is_info = 1;
+            ret = dwarf_siblingof_b(dbg, parameter_die, is_info,
+                    &sibling_die, &d_error);
+
+            dret = dwarf_errno(d_error);
+            if(dret){
+                write_tabs(level);
+                printf("dwarf_siblingof_b: %s d_error %s\n", dwarf_errmsg_by_number(ret),
+                        dwarf_errmsg_by_number(dret));
+            }
+
+            parameter_die = sibling_die;
+
+           // write_tabs(level);
+            //printf("Parameter die %p\n", parameter_die);
+            if(ret != DW_DLV_NO_ENTRY)
+                strcat(outtype, ", ");
+        }
+
+        strcat(outtype, ")");
+
         return;
     }
 
     if(tag == DW_TAG_base_type ||
+            tag == DW_TAG_enumeration_type ||
             tag == DW_TAG_structure_type ||
             tag == DW_TAG_union_type){
         if(type){
@@ -268,18 +345,12 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             strcat(tag_str, " void");
         }
 
-        //write_tabs(level);
-        //printf("got tag '%s'\n", tag_str);
-        //const char *voidptr = "void *";
-        //const size_t voidptr_len = 6;
-
-        if(strlen(outtype) + strlen(tag_str)/*voidptr_len*/ >= maxlen){
+        if(strlen(outtype) + strlen(tag_str) >= maxlen){
             write_tabs(level);
             printf("preventing buffer overflow, returning...\n");
             return;
         }
 
-        //strcat(outtype, voidptr);
         strcat(outtype, tag_str);
         return;
     }
@@ -360,9 +431,11 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             subrange_die = sibling_die;
         }
 
-
         return;
     }
+
+    //if(!should_append_tag(tag))
+      //  return;
 
     // write_tabs(level);
     // printf("Level %d: returning, type is '"RED"%s"RESET"'\n", level, type);
@@ -844,8 +917,8 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
     memset(CUR_PARENTS, 0, sizeof(CUR_PARENTS));
     CUR_PARENTS[0] = root_die;
 
-    // if(strcmp(root_die->die_diename, "source/thread.c") != 0)
-    //return 0;
+     if(strcmp(root_die->die_diename, "source/cmd/cmd.c") != 0)
+         return 0;
     construct_die_tree(dwarfinfo, compile_unit, root_die, NULL, root_die, 0);
 
     // XXX XXX second time around, connect die_datatypes
