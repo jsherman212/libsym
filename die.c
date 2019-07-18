@@ -147,7 +147,21 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         printf("dwarf_tag: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
         return;
     }
+/*
+    {
 
+        Dwarf_Attribute *attrlist = NULL;
+        Dwarf_Signed attrcnt = 0;
+
+        d_error = NULL;
+        ret = dwarf_attrlist(die, &attrlist, &attrcnt, &d_error);
+        int dret1 = dwarf_errno(d_error);
+
+        write_tabs(level);
+        printf("attrcnt %#llx\n", attrcnt);
+
+    }
+    */
     if(tag == DW_TAG_base_type ||
             tag == DW_TAG_structure_type ||
             tag == DW_TAG_union_type){
@@ -191,18 +205,51 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
     ret = dwarf_errno(d_error);
 
-    /* This seems to denote 'void *' */
-    if(ret == DW_DLE_ATTR_NULL){
-        const char *voidptr = "void *";
-        const size_t voidptr_len = 6;
+    Dwarf_Attribute *attrlist = NULL;
+    Dwarf_Signed attrcnt = 0;
 
-        if(strlen(outtype) + voidptr_len >= maxlen){
+    d_error = NULL;
+    ret = dwarf_attrlist(die, &attrlist, &attrcnt, &d_error);
+    int dret1 = dwarf_errno(d_error);
+
+    /*
+    if(ret || dret1){
+        printf("dwarf_attrlist: dret1=%s ret=%s\n", dwarf_errmsg_by_number(dret1), dwarf_errmsg_by_number(ret));
+    }
+
+    write_tabs(level);
+    printf("attr count %#llx\n", attrcnt);
+    */
+    if(/*tag == DW_TAG_pointer_type && */attrcnt == 0){//ret == DW_DLE_ATTR_NULL && tag == DW_TAG_pointer_type){
+        //write_tabs(level);
+        //printf("before, got tag str '%s'\n", dwarf_type_tag_to_string(tag));
+        char tag_str[96] = {0};
+
+        /* It seems that if a DW_TAG_*_type has no attributes,
+         * it is generic, like a void pointer. However, they can have
+         * qualifiers, so we have to check for that.
+         */
+        if(tag == DW_TAG_pointer_type){
+            strcpy(tag_str, "void *");
+        }
+        else{
+            strcat(tag_str, dwarf_type_tag_to_string(tag));
+            strcat(tag_str, " void");
+        }
+
+        //write_tabs(level);
+        //printf("got tag '%s'\n", tag_str);
+        //const char *voidptr = "void *";
+        //const size_t voidptr_len = 6;
+
+        if(strlen(outtype) + strlen(tag_str)/*voidptr_len*/ >= maxlen){
             write_tabs(level);
             printf("preventing buffer overflow, returning...\n");
             return;
         }
 
-        strcat(outtype, voidptr);
+        //strcat(outtype, voidptr);
+        strcat(outtype, tag_str);
         return;
     }
     else if(ret != DW_DLV_OK){
@@ -219,7 +266,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
     if(ret){
         write_tabs(level);
         printf("dwarf_offdie: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
-        return;
+    //    return;
     }
 
     // write_tabs(level);
