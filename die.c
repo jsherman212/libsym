@@ -316,14 +316,31 @@ static int get_form_data_from_die(Dwarf_Attribute attr, void *data, int way){
     return 0;
 }
 
+#define NON_COMPILE_TIME_CONSTANT_SIZE ((Dwarf_Unsigned)-1)
+
+static int IS_POINTER = 0;
+
 static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         Dwarf_Die die, size_t maxlen, size_t curlen, char *outtype,
         Dwarf_Unsigned *outsize, int is_parameter, int level){
     char *die_name = get_die_name(die);
     Dwarf_Half die_tag = get_die_tag(die);
+
+    /* This has to be done with a global variable...
+     * This variable is used to calculate data size.
+     * Once we see a pointer, we cannot disregard that fact when
+     * recursing/returning.
+     */
+    if(die_tag == DW_TAG_pointer_type){
+        IS_POINTER = 1;
+
+        /* Unlikely, but prevent setting outsize after it has been set once. */
+        if(*outsize == 0 && *outsize != NON_COMPILE_TIME_CONSTANT_SIZE)
+            *outsize = compunit_get_address_size(compile_unit);
+    }
+
     //const char *die_tag_name = get_tag_name(die_tag);
-    //Dwarf_Unsigned die_offset = get_die_offset(die);
-    Dwarf_Error d_error = NULL;
+    Dwarf_Unsigned die_offset = get_die_offset(die);
 
     if(die_tag == DW_TAG_formal_parameter){
         Dwarf_Die typedie = get_type_die(dbg, die);
@@ -343,6 +360,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
     /* Function pointer */
     if(die_tag == DW_TAG_subroutine_type){
+        IS_POINTER = 1;
+
         Dwarf_Die typedie = get_type_die(dbg, die);
         
         if(!typedie)
@@ -395,8 +414,12 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
                 return;
             }
 
-            /* DIE name == DIE type in this case */
             strcat(outtype, die_name);
+        }
+
+        if(!IS_POINTER){
+            Dwarf_Error d_error = NULL;
+            dwarf_bytesize(die, outsize, &d_error);
         }
         // XXX initialize outsize here, or no?
         // write_tabs(level);
@@ -412,8 +435,11 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
     int attrlisterr = get_die_attrlist(die, &attrlist, &attrcnt);
 
-    // XXX better way to detect this?
-    if(attrcnt == 0){
+    if(attrcnt == 0 && (die_tag == DW_TAG_pointer_type ||
+                die_tag == DW_TAG_const_type ||
+                die_tag == DW_TAG_volatile_type ||
+                die_tag == DW_TAG_restrict_type)){
+
         //write_tabs(level);
         //printf("before, got tag str '%s'\n", dwarf_type_tag_to_string(die_tag));
         char tag_str[96] = {0};
@@ -429,6 +455,9 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             strcat(tag_str, " void");
         }
 
+        //write_tabs(level);
+        //printf("attrcnt == 0, tag type is '"GREEN"%s"RESET"'\n", get_tag_name(die_tag));
+
         if(strlen(outtype) + strlen(tag_str) >= maxlen){
             write_tabs(level);
             printf("preventing buffer overflow, returning...\n");
@@ -443,9 +472,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
     }
 
     Dwarf_Die typedie = get_type_die(dbg, die);
-
-    if(!typedie)
-        return;
+    //write_tabs(level);
+    //printf("%#llx: typedie: %p\n", die_offset, typedie);
 
     // write_tabs(level);
     // printf("Level %d: got type: '"RED"%s"RESET"'\n", level, type);
@@ -460,8 +488,6 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         if(!subrange_die)
             return;
 
-        int dret = 0;
-
         for(;;){
             Dwarf_Attribute count_attr = NULL;
 
@@ -470,18 +496,19 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
             Dwarf_Unsigned nmemb = 0;
 
-            if(get_form_data_from_die(count_attr, &nmemb, FORMUDATA))
-                break;
-
-            /* Variable length array determined at runtime */
-            if(dret == DW_DLE_ATTR_FORM_BAD)
+            if(get_form_data_from_die(count_attr, &nmemb, FORMUDATA)){
+                /* Variable length array determined at runtime */
                 strcat(outtype, ARRAY_TYPE_STR);
-            else{
-                // XXX don't forget to check for overflow
-                char arrdim[96] = {0};
-                snprintf(arrdim, sizeof(arrdim), "[%#llx]", nmemb);
-                strcat(outtype, arrdim);
+                *outsize = NON_COMPILE_TIME_CONSTANT_SIZE;
+                break;
             }
+
+            // XXX don't forget to check for overflow
+            char arrdim[96] = {0};
+            snprintf(arrdim, sizeof(arrdim), "[%#llx]", nmemb);
+            strcat(outtype, arrdim);
+
+            *outsize *= nmemb;
 
             Dwarf_Die sibling_die = get_sibling_die(dbg, subrange_die);
 
@@ -501,6 +528,11 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
     int is_typedef = die_tag == DW_TAG_typedef;
 
+    //write_tabs(level);
+    /*
+    printf("%#llx: die_tag '"GREEN"%s"RESET"' real tag '"GREEN"%s"RESET"'\n", die_offset, type_tag_string,
+            get_tag_name(die_tag));
+        */
     /* If our current DIE is a typedef, this function will follow
      * (and append, without this check) the typedef types in the DIE chain.
      * As we return, we'll go up the DIE chain and see the "true" type
@@ -512,11 +544,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         
         Dwarf_Die typedie = get_type_die(dbg, die);
 
-        if(!typedie){
-            write_tabs(level);
-            dprintf("typedie NULL? void?\n");
-            return;
-        }
+        //write_tabs(level);
+        //printf("typedie %p\n", typedie);
 
         char *typedeftype = get_die_name(typedie);
 
@@ -642,6 +671,8 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
 
     generate_data_type_info(dwarfinfo->di_dbg, compile_unit,
             (*die)->die_datatypedie, maxlen, curlen, name, &size, 0, 0);
+
+    IS_POINTER = 0;
 
     (*die)->die_databytessize = size;
     (*die)->die_datatypename = strdup(name);
@@ -784,7 +815,7 @@ static void describe_die(die_t *die, int level){
         printf(", type = '"LIGHT_BLUE"%s"RESET"'", die->die_datatypename);
 
         if(die->die_tag != DW_TAG_subprogram){
-            printf(", sizeof('%s%s%s') = "LIGHT_YELLOW"%#llx"RESET"",
+            printf(", sizeof(%s%s%s) = "LIGHT_YELLOW"%#llx"RESET"",
                     varnamecolorstr, die->die_diename, RESET, die->die_databytessize);
         }
     }
@@ -885,8 +916,8 @@ static void add_die_to_tree(die_t *current, int level){
         }
     }
 
-    write_tabs(level);
-    describe_die(current, level);
+//    write_tabs(level);
+  //  describe_die(current, level);
 }
 
 /* This tree only contains DIEs with these tags:
@@ -1001,9 +1032,15 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
     memset(CUR_PARENTS, 0, sizeof(CUR_PARENTS));
     CUR_PARENTS[0] = root_die;
 
-//     if(strcmp(root_die->die_diename, "source/cmd/memcmd.c") != 0)
-  //       return 0;
+    // if(strcmp(root_die->die_diename, "source/thread.c") != 0)
+      //   return 0;
     construct_die_tree(dwarfinfo, compile_unit, root_die, NULL, root_die, 0);
+
+    printf("output of display_die_tree:\n\n");
+
+    display_die_tree(root_die, 0);
+
+    printf("end display_die_tree output\n\n");
 
     putchar('\n');
     printf("Children for root DIE '%s':\n", root_die->die_diename);
@@ -1024,11 +1061,6 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
             root_die->die_numchildren, nonnull);
 
 
-    printf("output of display_die_tree:\n\n");
-
-    display_die_tree(root_die, 0);
-
-    printf("end display_die_tree output\n\n");
     *_root_die = root_die;
 
     return 0;
