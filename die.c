@@ -269,10 +269,56 @@ static int get_die_attrlist(Dwarf_Die from, Dwarf_Attribute **attrlist,
     return 0;
 }
 
+static int get_die_attribute(Dwarf_Die from, Dwarf_Half whichattr,
+        Dwarf_Attribute *attr){
+    if(!attr)
+        return -1;
+
+    Dwarf_Error d_error = NULL;
+
+    dwarf_attr(from, DW_AT_count, attr, &d_error);
+
+    int err = dwarf_errno(d_error);
+
+    if(err){
+        //dprintf("dwarf_attr: %s\n", dwarf_errmsg_by_number(err));
+        return err;
+    }
+
+    return 0;
+}
+
+enum {
+    FORMSDATA = 0,
+    FORMUDATA
+};
+
+static int get_form_data_from_die(Dwarf_Attribute attr, void *data, int way){
+    if(!data)
+        return -1;
+
+    Dwarf_Error d_error = NULL;
+
+    if(way == FORMSDATA)
+        dwarf_formsdata(attr, ((Dwarf_Signed *)data), &d_error);
+    else if(way == FORMUDATA)
+        dwarf_formudata(attr, ((Dwarf_Unsigned *)data), &d_error);
+    else
+        return -1;
+
+    int err = dwarf_errno(d_error);
+
+    if(err){
+        dprintf("dwarf_form*data: %s\n", dwarf_errmsg_by_number(err));
+        return err;
+    }
+
+    return 0;
+}
+
 static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         Dwarf_Die die, size_t maxlen, size_t curlen, char *outtype,
         Dwarf_Unsigned *outsize, int is_parameter, int level){
-    //int ret = DW_DLV_OK;
     char *die_name = get_die_name(die);
     Dwarf_Half die_tag = get_die_tag(die);
     //const char *die_tag_name = get_tag_name(die_tag);
@@ -311,53 +357,23 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         /* Get parameters */
         Dwarf_Die parameter_die = get_child_die(die);
 
-        /*
-        ret = dwarf_errno(d_error);
-
-        if(ret){
-            write_tabs(level);
-            printf("dwarf_child: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
-            return;
-        }*/
-
         /* No parameters */
         if(!parameter_die){
             strcat(outtype, "void)");
             return;
         }
 
-        int dret = 0;
-
-        //while(ret != DW_DLV_NO_ENTRY){
         for(;;){
             generate_data_type_info(dbg, compile_unit, parameter_die, maxlen,
                     curlen, outtype, outsize, 0, level+1);
 
-            /*
-            Dwarf_Die sibling_die = NULL;
-            d_error = NULL;
-            int is_info = 1;
-            ret = dwarf_siblingof_b(dbg, parameter_die, is_info,
-                    &sibling_die, &d_error);
-
-            dret = dwarf_errno(d_error);
-            if(dret){
-                write_tabs(level);
-                printf("dwarf_siblingof_b: %s d_error %s\n", dwarf_errmsg_by_number(ret),
-                        dwarf_errmsg_by_number(dret));
-            }
-            */
-
             Dwarf_Die sibling_die = get_sibling_die(dbg, parameter_die);
 
             if(!sibling_die)
-                break;//return;
+                break;
 
             parameter_die = sibling_die;
 
-           // write_tabs(level);
-            //printf("Parameter die %p\n", parameter_die);
-            //if(ret != DW_DLV_NO_ENTRY)
             strcat(outtype, ", ");
         }
 
@@ -391,36 +407,15 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         return;
     }
 
-    //d_error = NULL;
-
     Dwarf_Attribute *attrlist = NULL;
     Dwarf_Signed attrcnt = 0;
-/*
-    d_error = NULL;
-    ret = dwarf_attrlist(die, &attrlist, &attrcnt, &d_error);
-    int dret1 = dwarf_errno(d_error);
-
-    */
-
-    /*
-    if(get_die_attrlist(die, &attrlist, &attrcnt))
-        return;
-        */
 
     int attrlisterr = get_die_attrlist(die, &attrlist, &attrcnt);
 
-    /*
-    if(ret || dret1){
-        printf("dwarf_attrlist: dret1=%s ret=%s\n", dwarf_errmsg_by_number(dret1), dwarf_errmsg_by_number(ret));
-    }
-
-    write_tabs(level);
-    printf("attr count %#llx\n", attrcnt);
-    */
     // XXX better way to detect this?
     if(attrcnt == 0){
         //write_tabs(level);
-        //printf("before, got tag str '%s'\n", dwarf_type_tag_to_string(tag));
+        //printf("before, got tag str '%s'\n", dwarf_type_tag_to_string(die_tag));
         char tag_str[96] = {0};
 
         /* It seems that if a DW_TAG_*_type has no attributes,
@@ -443,9 +438,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         strcat(outtype, tag_str);
         return;
     }
-    else if(attrlisterr /*ret*/!= DW_DLV_OK){
-        //write_tabs(level);
-        //printf("dwarf_attrlist: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
+    else if(attrlisterr != DW_DLV_OK){
         return;
     }
 
@@ -462,49 +455,23 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
     if(die_tag == DW_TAG_array_type){
         /* Number of subranges denote how many dimensions */
-        /*Dwarf_Die subrange_die = NULL;
-        d_error = NULL;
-        dwarf_child(die, &subrange_die, &d_error);
-        */
-
         Dwarf_Die subrange_die = get_child_die(die);
-
-        /*
-        ret = dwarf_errno(d_error);
-
-        if(ret){
-            write_tabs(level);
-            printf("dwarf_child: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
-            return;
-        }*/
 
         if(!subrange_die)
             return;
 
         int dret = 0;
 
-        for(;;){//ret != DW_DLV_NO_ENTRY){
-            d_error = NULL;
-            Dwarf_Attribute attr = NULL;
-            Dwarf_Unsigned subrange_count = 0;
-            dwarf_attr(subrange_die, DW_AT_count, &attr, &d_error);
-            dret = dwarf_errno(d_error);
-            if(dret){
-                //printf("dwarf_attr: %s d_error %s\n", dwarf_errmsg_by_number(ret),
-                  //      dwarf_errmsg_by_number(dret));
-                break;
-                //return;
-            }
+        for(;;){
+            Dwarf_Attribute count_attr = NULL;
 
-            d_error = NULL;
-            Dwarf_Unsigned nmemb;
-            dwarf_formudata(attr, &nmemb, &d_error);
-            dret = dwarf_errno(d_error);
-            if(dret){
-                //printf("dwarf_formudata: %s d_error %s\n", dwarf_errmsg_by_number(ret),
-                  //      dwarf_errmsg_by_number(dret));
+            if(get_die_attribute(subrange_die, DW_AT_count, &count_attr))
                 break;
-            }
+
+            Dwarf_Unsigned nmemb = 0;
+
+            if(get_form_data_from_die(count_attr, &nmemb, FORMUDATA))
+                break;
 
             /* Variable length array determined at runtime */
             if(dret == DW_DLE_ATTR_FORM_BAD)
@@ -516,23 +483,10 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
                 strcat(outtype, arrdim);
             }
 
-         /*   Dwarf_Die sibling_die = NULL;
-            d_error = NULL;
-            int is_info = 1;
-            ret = dwarf_siblingof_b(dbg, subrange_die, is_info,
-                    &sibling_die, &d_error);
-
-            dret = dwarf_errno(d_error);
-            if(dret){
-                write_tabs(level);
-                printf("dwarf_siblingof_b: %s d_error %s\n", dwarf_errmsg_by_number(ret),
-                        dwarf_errmsg_by_number(dret));
-            }
-            */
             Dwarf_Die sibling_die = get_sibling_die(dbg, subrange_die);
 
-            //if(!sibling_die)
-              //  break;
+            if(!sibling_die)
+                break;
 
             subrange_die = sibling_die;
         }
@@ -554,7 +508,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
      */
     if(is_typedef){
         //write_tabs(level);
-        //printf("got a typedef '%s'\n", type);
+        //printf("got a typedef '%s'\n", die_name);
         
         Dwarf_Die typedie = get_type_die(dbg, die);
 
@@ -564,26 +518,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             return;
         }
 
-        /*
-        char *typedeftype = NULL;
-        d_error = NULL;
-        dwarf_diename(typedie, &typedeftype, &d_error);
-        */
-
         char *typedeftype = get_die_name(typedie);
 
-        //if(!typedeftype)
-         //   return;
-
-        /*
-        ret = dwarf_errno(d_error);
-
-        if(ret){
-            write_tabs(level);
-            printf("dwarf_diename: %s\n", dwarf_errmsg_by_number(ret));
-            return;
-        }
-        */
         //write_tabs(level);
         //printf("got underlying typedef type '%s'\n", typedeftype);
 
