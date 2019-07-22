@@ -475,10 +475,19 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         if(typedeftype)
             typedeftypelen = strlen(typedeftype);
 
+        if(!typedeftype || outtypelen == 0 ||
+                (outtypelen == typedeftypelen && strcmp(outtype, typedeftype) == 0)){
+            strcpy(outtype, type);
+            return;
+        }
+
         long replaceat = outtypelen - typedeftypelen;
 
         if(replaceat < 0 || !typedeftype)
             replaceat = 0;
+
+        if(replaceat > outtypelen)
+            return;
 
         /*
         write_tabs(level);
@@ -486,20 +495,6 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
                 level, typedeftype, type, replaceat, outtype);
         */
 
-        if(!typedeftype){
-            strcpy(outtype, type);
-            return;
-        }
-
-        if(outtypelen == 0){
-            strcpy(outtype, type);
-            return;
-        }
-        
-        if(outtypelen == typedeftypelen && strcmp(outtype, typedeftype) == 0){
-            strcpy(outtype, type);
-            return;
-        }
 
         long replacelen = outtypelen - typedeftypelen;
 
@@ -947,13 +942,32 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, void *compile_unit,
     }
 }
 
+static void display_die_tree(die_t *die, int level){
+    if(!die)
+        return;
+
+    write_tabs(level);
+    describe_die(die, level);
+
+    if(!die->die_haschildren)
+        return;
+    else{
+        int idx = 0;
+        die_t *child = die->die_children[idx];
+
+        while(child){
+            display_die_tree(child, level+1);
+            child = die->die_children[++idx];
+        }
+    }
+}
+
 /* Chapter 2.3:
  * The ownership relation of debugging information entries is achieved
  * naturally because the debugging information is represented as a tree.
  * The nodes of the tree are the debugging information entries themselves. 
  * The child entries of any node are exactly those debugging information 
  * entries owned by that node.
- * The tree itself is represented by flattening it in prefix order.
  */
 int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
         void *compile_unit, die_t **_root_die, char **error){
@@ -978,8 +992,6 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
   //       return 0;
     construct_die_tree(dwarfinfo, compile_unit, root_die, NULL, root_die, 0);
 
-    // XXX XXX second time around, connect die_datatypes
-
     putchar('\n');
     printf("Children for root DIE '%s':\n", root_die->die_diename);
 
@@ -998,6 +1010,12 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
     printf("%d children, and %d nonnull children\n\n",
             root_die->die_numchildren, nonnull);
 
+
+    printf("output of display_die_tree:\n\n");
+
+    display_die_tree(root_die, 0);
+
+    printf("end display_die_tree output\n\n");
     *_root_die = root_die;
 
     return 0;
