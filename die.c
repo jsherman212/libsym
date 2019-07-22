@@ -263,7 +263,7 @@ static int get_die_attrlist(Dwarf_Die from, Dwarf_Attribute **attrlist,
 
     if(err){
         dprintf("dwarf_attrlist: %s\n", dwarf_errmsg_by_number(err));
-        return -1;
+        return err;
     }
 
     return 0;
@@ -272,14 +272,14 @@ static int get_die_attrlist(Dwarf_Die from, Dwarf_Attribute **attrlist,
 static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         Dwarf_Die die, size_t maxlen, size_t curlen, char *outtype,
         Dwarf_Unsigned *outsize, int is_parameter, int level){
-    int ret = DW_DLV_OK;
-    char *type = get_die_name(die);
-    Dwarf_Half tag = get_die_tag(die);
-    const char *tag_name = get_tag_name(tag);
-    Dwarf_Unsigned offset = get_die_offset(die);
+    //int ret = DW_DLV_OK;
+    char *die_name = get_die_name(die);
+    Dwarf_Half die_tag = get_die_tag(die);
+    //const char *die_tag_name = get_tag_name(die_tag);
+    //Dwarf_Unsigned die_offset = get_die_offset(die);
     Dwarf_Error d_error = NULL;
 
-    if(tag == DW_TAG_formal_parameter){
+    if(die_tag == DW_TAG_formal_parameter){
         Dwarf_Die typedie = get_type_die(dbg, die);
 
         if(!typedie){
@@ -293,10 +293,10 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
         return;
     }
-    //printf("die name '%s' tag name '%s' offset %#llx\n", type, tag_name, offset);
+    //printf("die name '%s' tag name '%s' offset %#llx\n", die_name, die_tag_name, die_offset);
 
     /* Function pointer */
-    if(tag == DW_TAG_subroutine_type){
+    if(die_tag == DW_TAG_subroutine_type){
         Dwarf_Die typedie = get_type_die(dbg, die);
         
         if(!typedie)
@@ -328,9 +328,10 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
         int dret = 0;
 
-        while(ret != DW_DLV_NO_ENTRY){
-            generate_data_type_info(dbg, compile_unit, parameter_die, maxlen, curlen,
-                    outtype, outsize, 0, level+1);
+        //while(ret != DW_DLV_NO_ENTRY){
+        for(;;){
+            generate_data_type_info(dbg, compile_unit, parameter_die, maxlen,
+                    curlen, outtype, outsize, 0, level+1);
 
             /*
             Dwarf_Die sibling_die = NULL;
@@ -350,14 +351,14 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             Dwarf_Die sibling_die = get_sibling_die(dbg, parameter_die);
 
             if(!sibling_die)
-                return;
+                break;//return;
 
             parameter_die = sibling_die;
 
            // write_tabs(level);
             //printf("Parameter die %p\n", parameter_die);
-            if(ret != DW_DLV_NO_ENTRY)
-                strcat(outtype, ", ");
+            //if(ret != DW_DLV_NO_ENTRY)
+            strcat(outtype, ", ");
         }
 
         strcat(outtype, ")");
@@ -365,20 +366,21 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         return;
     }
 
-    if(tag == DW_TAG_base_type ||
-            tag == DW_TAG_enumeration_type ||
-            tag == DW_TAG_structure_type ||
-            tag == DW_TAG_union_type){
-        if(type){
+    if(die_tag == DW_TAG_base_type ||
+            die_tag == DW_TAG_enumeration_type ||
+            die_tag == DW_TAG_structure_type ||
+            die_tag == DW_TAG_union_type){
+        if(die_name){
             size_t outtype_len = strlen(outtype);
 
-            if(outtype_len + strlen(type) >= maxlen){
+            if(outtype_len + strlen(die_name) >= maxlen){
                 write_tabs(level);
                 printf("preventing buffer overflow, returning...\n");
                 return;
             }
 
-            strcat(outtype, type);
+            /* DIE name == DIE type in this case */
+            strcat(outtype, die_name);
         }
         // XXX initialize outsize here, or no?
         // write_tabs(level);
@@ -405,7 +407,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         return;
         */
 
-    get_die_attrlist(die, &attrlist, &attrcnt);
+    int attrlisterr = get_die_attrlist(die, &attrlist, &attrcnt);
 
     /*
     if(ret || dret1){
@@ -425,10 +427,10 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
          * it is generic, like a void pointer. However, they can have
          * qualifiers, so we have to check for that.
          */
-        if(tag == DW_TAG_pointer_type)
+        if(die_tag == DW_TAG_pointer_type)
             strcpy(tag_str, "void *");
         else{
-            strcat(tag_str, dwarf_type_tag_to_string(tag));
+            strcat(tag_str, dwarf_type_tag_to_string(die_tag));
             strcat(tag_str, " void");
         }
 
@@ -441,7 +443,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         strcat(outtype, tag_str);
         return;
     }
-    else if(ret != DW_DLV_OK){
+    else if(attrlisterr /*ret*/!= DW_DLV_OK){
         //write_tabs(level);
         //printf("dwarf_attrlist: %s (%d)\n", dwarf_errmsg_by_number(ret), ret);
         return;
@@ -458,7 +460,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
     generate_data_type_info(dbg, compile_unit, typedie, maxlen, curlen,
             outtype, outsize, 0, level+1);
 
-    if(tag == DW_TAG_array_type){
+    if(die_tag == DW_TAG_array_type){
         /* Number of subranges denote how many dimensions */
         /*Dwarf_Die subrange_die = NULL;
         d_error = NULL;
@@ -481,16 +483,17 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
         int dret = 0;
 
-        while(ret != DW_DLV_NO_ENTRY){
+        for(;;){//ret != DW_DLV_NO_ENTRY){
             d_error = NULL;
             Dwarf_Attribute attr = NULL;
             Dwarf_Unsigned subrange_count = 0;
             dwarf_attr(subrange_die, DW_AT_count, &attr, &d_error);
             dret = dwarf_errno(d_error);
             if(dret){
-                printf("dwarf_attr: %s d_error %s\n", dwarf_errmsg_by_number(ret),
-                        dwarf_errmsg_by_number(dret));
-                return;
+                //printf("dwarf_attr: %s d_error %s\n", dwarf_errmsg_by_number(ret),
+                  //      dwarf_errmsg_by_number(dret));
+                break;
+                //return;
             }
 
             d_error = NULL;
@@ -498,8 +501,9 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             dwarf_formudata(attr, &nmemb, &d_error);
             dret = dwarf_errno(d_error);
             if(dret){
-                printf("dwarf_formudata: %s d_error %s\n", dwarf_errmsg_by_number(ret),
-                        dwarf_errmsg_by_number(dret));
+                //printf("dwarf_formudata: %s d_error %s\n", dwarf_errmsg_by_number(ret),
+                  //      dwarf_errmsg_by_number(dret));
+                break;
             }
 
             /* Variable length array determined at runtime */
@@ -536,12 +540,12 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         return;
     }
 
-    const char *type_tag_string = dwarf_type_tag_to_string(tag);
+    const char *type_tag_string = dwarf_type_tag_to_string(die_tag);
     const size_t type_tag_len = strlen(type_tag_string);
 
     size_t outtype_len = strlen(outtype);
 
-    int is_typedef = tag == DW_TAG_typedef;
+    int is_typedef = die_tag == DW_TAG_typedef;
 
     /* If our current DIE is a typedef, this function will follow
      * (and append, without this check) the typedef types in the DIE chain.
@@ -591,7 +595,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
         if(!typedeftype || outtypelen == 0 ||
                 (outtypelen == typedeftypelen && strcmp(outtype, typedeftype) == 0)){
-            strcpy(outtype, type);
+            strcpy(outtype, die_name);
             return;
         }
 
@@ -623,7 +627,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
        // write_tabs(level);
        // printf("outtype is now '%s', appending...\n", outtype);
 
-        strcat(&outtype[replaceat], type);
+        strcat(&outtype[replaceat], die_name);
 
        // write_tabs(level);
        // printf("appended, outtype is now '%s'\n", outtype);
