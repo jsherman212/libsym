@@ -98,6 +98,14 @@ void *sym_find_die_by_name(void *unit, const char *name){
     return result;
 }
 
+void *sym_find_function_die_by_pc(void *unit, uint64_t pc){
+    void *root_die = cu_get_root_die(unit);
+    void *result = NULL;
+    die_find_function_die_by_pc(root_die, pc, &result);
+
+    return result;
+}
+
 char *sym_get_die_name(void *die){
     return die_get_name(die);
 }

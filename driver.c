@@ -35,6 +35,7 @@ int main(int argc, char **argv, const char **envp){
 
     enum {
         CHOICE_FIND_DIE_BY_NAME = 1,
+        CHOICE_FIND_FUNCTION_DIE_BY_PC,
         CHOICE_DISPLAY_CURRENT_DIE,
         CHOICE_RESET_CURRENT_DIE,
         CHOICE_DISPLAY_COMPILATION_UNIT_MENU
@@ -113,6 +114,7 @@ int main(int argc, char **argv, const char **envp){
                         }
 
                         display_compile_unit_menu = 0;
+                        printf("\n");
                         break;
                     }
                 default:
@@ -124,9 +126,10 @@ int main(int argc, char **argv, const char **envp){
         }
         else{
             printf("1. Find DIE in this compile unit by name\n"
-                    "2. Display DIE tree of current DIE\n"
-                    "3. Reset current DIE\n"
-                    "4. Display compilation unit menu\n");
+                    "2. Find a function DIE via an arbitrary PC\n"
+                    "3. Display DIE tree of current DIE\n"
+                    "4. Reset current DIE\n"
+                    "5. Display compilation unit menu\n");
 
             int choice = 0;
             scanf("%d", &choice);
@@ -156,6 +159,32 @@ int main(int argc, char **argv, const char **envp){
                         printf("\n");
                         break;
                     }
+                case CHOICE_FIND_FUNCTION_DIE_BY_PC:
+                    {
+                        void *comp_root_die =
+                            sym_get_compilation_unit_root_die(current_compile_unit);
+
+                        sym_display_die_tree_starting_from(comp_root_die);
+
+                        uint64_t pc = 0;
+                        printf("\nEnter PC: ");
+                        scanf("%llx", &pc);
+
+                        void *prev_die = current_die;
+                        current_die = sym_find_function_die_by_pc(current_compile_unit, pc);
+
+                        if(current_die){
+                            char *name = sym_get_die_name(current_die);
+                            printf("Selected die '%s'\n", name);
+                        }
+                        else{
+                            current_die = prev_die;
+                            printf("Function DIE with PC %#llx not found\n", pc);
+                        }
+
+                        printf("\n");
+                        break;
+                    }
                 case CHOICE_DISPLAY_CURRENT_DIE:
                     {
                         if(!current_die){
@@ -176,6 +205,7 @@ int main(int argc, char **argv, const char **envp){
                 case CHOICE_DISPLAY_COMPILATION_UNIT_MENU:
                     {
                         display_compile_unit_menu = 1;
+                        printf("\n");
                         break;
                     }
                 default:

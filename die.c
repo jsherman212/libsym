@@ -1036,7 +1036,7 @@ void die_find_by_name(die_t *die, const char *name, die_t **out){
     if(!die)
         return;
 
-    if(die && die->die_diename && strcmp(die->die_diename, name) == 0){
+    if(die->die_diename && strcmp(die->die_diename, name) == 0){
         *out = die;
         return;
     }
@@ -1049,6 +1049,32 @@ void die_find_by_name(die_t *die, const char *name, die_t **out){
 
         while(child){
             die_find_by_name(child, name, out);
+            child = die->die_children[++idx];
+        }
+    }
+}
+
+void die_find_function_die_by_pc(die_t *die, uint64_t pc, die_t **out){
+    if(*out)
+        return;
+
+    if(!die)
+        return;
+
+    if(die->die_tag == DW_TAG_subprogram &&
+            pc >= die->die_low_pc && pc <= die->die_high_pc){
+        *out = die;
+        return;
+    }
+
+    if(!die->die_haschildren)
+        return;
+    else{
+        int idx = 0;
+        die_t *child = die->die_children[idx];
+
+        while(child){
+            die_find_function_die_by_pc(child, pc, out);
             child = die->die_children[++idx];
         }
     }
