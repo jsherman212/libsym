@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <libdwarf.h>
 
@@ -14,29 +15,59 @@ typedef struct {
     Dwarf_Unsigned cu_next_header_offset;
 
     void *cu_root_die;
-    char **cu_srcfiles;
-    Dwarf_Signed cu_srcfilecnt;
 } compunit_t;
 
-/*
-static compunit_t *create_compile_unit(Dwarf_Unsigned hdrlen,
-        Dwarf_Unsigned abbrev_off, Dwarf_Half addrsz){
-    compunit_t *unit = malloc(sizeof(compunit_t));
-    unit->cu_header_len = hdrlen;
-    unit->cu_abbrev_offset = abbrev_off;
-    unit->cu_address_size = addrsz;
+void cu_display_compilation_units(dwarfinfo_t *dwarfinfo){
+    int cnt = 1;
 
-    return unit;
+    LL_FOREACH(dwarfinfo->di_compunits, current){
+        compunit_t *unit = current->data;
+
+        char *cuname = die_get_name(unit->cu_root_die);
+
+        printf("Compilation unit %d/%d:\n"
+                "\tcu_header_len: %#llx\n"
+                "\tcu_abbrev_offset: %#llx\n"
+                "\tcu_address_size: %#x\n"
+                "\tcu_next_header_offset: %#llx\n"
+                "\tcu_diename: '%s'\n",
+                cnt++, dwarfinfo->di_numcompunits,
+                unit->cu_header_len, unit->cu_abbrev_offset,
+                unit->cu_address_size, unit->cu_next_header_offset,
+                cuname);
+    }
 }
-*/
 
-static void load_child_dies(dwarfinfo_t *dwarfinfo, char **error){
+void *cu_find_compilation_unit_by_name(dwarfinfo_t *dwarfinfo, char *name){
+    LL_FOREACH(dwarfinfo->di_compunits, current){
+        compunit_t *unit = current->data;
 
+        char *cuname = die_get_name(unit->cu_root_die);
+
+        if(strcmp(cuname, name) == 0)
+            return unit;
+    }
+
+    return NULL;
 }
 
-int sym_load_compilation_units(dwarfinfo_t *dwarfinfo, char **error){
+Dwarf_Half cu_get_address_size(compunit_t *unit){
+    if(!unit)
+        return 0;
+
+    return unit->cu_address_size;
+}
+
+void *cu_get_root_die(compunit_t *unit){
+    if(!unit)
+        return NULL;
+
+    return unit->cu_root_die;
+}
+
+int cu_load_compilation_units(dwarfinfo_t *dwarfinfo, char **error){
     for(;;){
-        compunit_t *unit = malloc(sizeof(compunit_t));
+        compunit_t *unit = calloc(1, sizeof(compunit_t));
         Dwarf_Half ver, len_sz, ext_sz, hdr_type;
         Dwarf_Sig8 sig;
         Dwarf_Unsigned typeoff;
@@ -75,64 +106,4 @@ int sym_load_compilation_units(dwarfinfo_t *dwarfinfo, char **error){
     }
 
     return 0;
-}
-
-void display_compilation_units(dwarfinfo_t *dwarfinfo){
-    int cnt = 1;
-    LL_FOREACH(dwarfinfo->di_compunits, current){
-        compunit_t *unit = current->data;
-
-        /*
-        printf("Compilation unit %d/%d:\n"
-                "\tcu_header_len: %#llx\n"
-                "\tcu_abbrev_offset: %#llx\n"
-                "\tcu_address_size: %#x\n"
-                "\tcu_next_header_offset: %#llx\n"
-                "\tcu_diename: '%s'\n" 
-                "\tcu_srcfilecnt: %lld\n",
-                cnt++, dwarfinfo->di_numcompunits,
-                unit->cu_header_len, unit->cu_abbrev_offset,
-                unit->cu_address_size, unit->cu_next_header_offset,
-                unit->cu_diename?unit->cu_diename:"NULL",
-                unit->cu_srcfilecnt);
-                */
-        printf("Compilation unit %d/%d:\n"
-                "\tcu_header_len: %#llx\n"
-                "\tcu_abbrev_offset: %#llx\n"
-                "\tcu_address_size: %#x\n"
-                "\tcu_next_header_offset: %#llx\n",
-                cnt++, dwarfinfo->di_numcompunits,
-                unit->cu_header_len, unit->cu_abbrev_offset,
-                unit->cu_address_size, unit->cu_next_header_offset);
-        printf("\tdebugging information entries:\n");
-        display_from_root_die(unit->cu_root_die);
-        putchar('\n');
-        
-        
-        /*
-        char *desc = NULL;
-        
-        asprintf(&desc, "Compilation unit %d/%d:\n"
-                "\tcu_header_len: %#llx\n"
-                "\tcu_abbrev_offset: %#llx\n"
-                "\tcu_address_size: %#x\n"
-                "\tcu_next_header_offset: %#llx\n",
-                cnt++, dwarfinfo->di_numcompunits,
-                unit->cu_header_len, unit->cu_abbrev_offset,
-                unit->cu_address_size, unit->cu_next_header_offset);
-        asprintf(&desc, "\tdebugging information entries:\n");
-
-        asprintf(&desc, "Compilation unit %d/%d:\n", cnt++, dwarfinfo->di_numcompunits);
-        printf("%s", desc);
-
-        free(desc);
-        */
-    }
-}
-
-Dwarf_Half compunit_get_address_size(compunit_t *unit){
-    if(!unit)
-        return 0;
-
-    return unit->cu_address_size;
 }
