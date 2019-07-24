@@ -16,5 +16,7 @@ void sym_display_die_tree_starting_from(void *);
 void *sym_find_die_by_name(void *, const char *);
 void *sym_find_function_die_by_pc(void *, uint64_t);
 char *sym_get_die_name(void *);
+uint64_t sym_get_die_high_pc(void *);
+uint64_t sym_get_die_low_pc(void *);
 
 #endif

@@ -31,4 +31,9 @@ typedef struct {
             var; \
             var = var->next)
 
+enum {
+    DIE_SEARCH_IF_NAME_MATCHES,
+    DIE_SEARCH_FUNCTION_BY_PC
+};
+
 #endif

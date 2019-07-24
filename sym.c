@@ -35,15 +35,11 @@ int sym_init_with_dwarf_file(const char *file, dwarfinfo_t **_dwarfinfo,
         return 1;
     }
 
-    //dprintf("_E %d\n", _E);
-
     dwarfinfo->di_compunits = linkedlist_new();
     dwarfinfo->di_numcompunits = 0;
 
     if(cu_load_compilation_units(dwarfinfo, error))
         return 1;
-
-    //display_compilation_units(dwarfinfo);
 
     *_dwarfinfo = dwarfinfo;
 
@@ -93,7 +89,7 @@ void sym_display_die_tree_starting_from(void *die){
 void *sym_find_die_by_name(void *unit, const char *name){
     void *root_die = cu_get_root_die(unit);
     void *result = NULL;
-    die_find_by_name(root_die, name, &result);
+    die_search(root_die, (void *)name, DIE_SEARCH_IF_NAME_MATCHES, &result);
 
     return result;
 }
@@ -101,7 +97,7 @@ void *sym_find_die_by_name(void *unit, const char *name){
 void *sym_find_function_die_by_pc(void *unit, uint64_t pc){
     void *root_die = cu_get_root_die(unit);
     void *result = NULL;
-    die_find_function_die_by_pc(root_die, pc, &result);
+    die_search(root_die, (void *)pc, DIE_SEARCH_FUNCTION_BY_PC, &result);
 
     return result;
 }
@@ -110,3 +106,10 @@ char *sym_get_die_name(void *die){
     return die_get_name(die);
 }
 
+uint64_t sym_get_die_high_pc(void *die){
+    return die_get_high_pc(die);
+}
+
+uint64_t sym_get_die_low_pc(void *die){
+    return die_get_low_pc(die);
+}

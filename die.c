@@ -73,16 +73,9 @@ struct die {
 };
 
 static inline void write_tabs(int cnt){
-    for(int i=0; i<cnt; i++){
-        // printf("    ");
+    for(int i=0; i<cnt; i++)
         putchar('\t');
-        //putchar(' ');
-        //putchar(' ');
-    }
 }
-
-static int lex_block_count = 0, anon_struct_count = 0, anon_union_count = 0,
-           anon_enum_count = 0;
 
 // XXX if this DIE represents a struct or union. is aggregate the right word?
 static int is_aggregate_type(Dwarf_Half tag){
@@ -100,45 +93,19 @@ static int is_inlined_subroutine(die_t *die){
     return die->die_tag == DW_TAG_inlined_subroutine;
 }
 
-#define CONST_TYPE_STR "const"
-#define RESTRICT_TYPE_STR "restrict"
-#define VOLATILE_TYPE_STR "volatile"
-#define SUBROUTINE_TYPE_STR "(<params>)" // XXX
-#define ARRAY_TYPE_STR "[]"
-#define PTR_TYPE_STR "*"
-#define UNKNOWN_TYPE_STR "<unknown>"
-
 static const char *dwarf_type_tag_to_string(Dwarf_Half tag){
-    /*
-    const char *name = NULL;
-    Dwarf_Error d_error;
-    dwarf_get_TAG_name(tag, &name);
-
-   printf("tag name '%s'\n", name);
-
-*/
     switch(tag){
         case DW_TAG_const_type:
-            return CONST_TYPE_STR; 
+            return "const"; 
         case DW_TAG_restrict_type:
-            return RESTRICT_TYPE_STR;
+            return "restrict";
         case DW_TAG_volatile_type:
-            return VOLATILE_TYPE_STR;
-        case DW_TAG_subroutine_type:
-            return SUBROUTINE_TYPE_STR;
-        case DW_TAG_array_type:
-            return ARRAY_TYPE_STR;
+            return "volatile";
         case DW_TAG_pointer_type:
-            return PTR_TYPE_STR;
+            return "*";
         default:
-            return UNKNOWN_TYPE_STR;
+            return "<unknown>";
     };
-}
-
-static int should_append_tag(Dwarf_Half tag){
-    return tag == DW_TAG_const_type || tag == DW_TAG_restrict_type ||
-        tag == DW_TAG_volatile_type || tag == DW_TAG_subroutine_type ||
-        tag == DW_TAG_array_type || tag == DW_TAG_pointer_type;
 }
 
 static Dwarf_Die get_type_die(Dwarf_Debug dbg, Dwarf_Die from){
@@ -148,63 +115,50 @@ static Dwarf_Die get_type_die(Dwarf_Debug dbg, Dwarf_Die from){
     dwarf_attr(from, DW_AT_type, &attr, &d_error);
     int err = dwarf_errno(d_error);
 
-    if(err){
-        dprintf("dwarf_attr: %s\n", dwarf_errmsg_by_number(err));
+    if(err)
         return NULL;
-    }
 
     Dwarf_Unsigned offset = 0;
     dwarf_global_formref(attr, &offset, &d_error);
 
     err = dwarf_errno(d_error);
 
-    if(err){
-    //    dprintf("dwarf_offset: %s\n", dwarf_errmsg_by_number(err));
+    if(err)
         return NULL;
-    }
 
     Dwarf_Die type_die = NULL;
     dwarf_offdie(dbg, offset, &type_die, &d_error);
 
     err = dwarf_errno(d_error);
 
-    if(err){
-        dprintf("dwarf_offdie: %s\n", dwarf_errmsg_by_number(err));
+    if(err)
         return NULL;
-    }
 
     return type_die;
 }
 
-static char *get_die_name_internal(Dwarf_Die from){
+static char *get_die_name_raw(Dwarf_Die from){
     char *name = NULL;
     Dwarf_Error d_error = NULL;
     dwarf_diename(from, &name, &d_error);
 
     int err = dwarf_errno(d_error);
 
-    if(err){
-        //strcat(outtype, "A");
-        //write_tabs(level);
-        dprintf("dwarf_diename: %s\n", dwarf_errmsg_by_number(err));
+    if(err)
         return NULL;
-    }
 
     return name;
 }
 
-static Dwarf_Half get_die_tag(Dwarf_Die from){
+static Dwarf_Half get_die_tag_raw(Dwarf_Die from){
     Dwarf_Half tag = -1;
     Dwarf_Error d_error = NULL;
     dwarf_tag(from, &tag, &d_error);
 
     int err = dwarf_errno(d_error);
 
-    if(err){
-        //write_tabs(level);
-        dprintf("dwarf_tag: %s\n", dwarf_errmsg_by_number(err));
+    if(err)
         return -1;
-    }
 
     return tag;
 }
@@ -224,10 +178,8 @@ static Dwarf_Unsigned get_die_offset(Dwarf_Die from){
 
     int err = dwarf_errno(d_error);
 
-    if(err){
-        dprintf("dwarf_dieoffset: %s\n", dwarf_errmsg_by_number(err));
+    if(err)
         return 0;
-    }
 
     return offset;
 }
@@ -239,10 +191,8 @@ static Dwarf_Die get_child_die(Dwarf_Die parent){
 
     int err = dwarf_errno(d_error);
 
-    if(err){
-        dprintf("dwarf_dieoffset: %s\n", dwarf_errmsg_by_number(err));
+    if(err)
         return NULL;
-    }
 
     return child_die;
 }
@@ -256,11 +206,8 @@ static Dwarf_Die get_sibling_die(Dwarf_Debug dbg, Dwarf_Die from){
 
     int err = dwarf_errno(d_error);
 
-    if(err){
-        //write_tabs(level);
-        dprintf("dwarf_siblingof_b: %s\n", dwarf_errmsg_by_number(err));
+    if(err)
         return NULL;
-    }
 
     return sibling_die;
 }
@@ -274,10 +221,8 @@ static int get_die_attrlist(Dwarf_Die from, Dwarf_Attribute **attrlist,
     dwarf_attrlist(from, attrlist, attrcnt, &d_error);
     int err = dwarf_errno(d_error);
 
-    if(err){
-        dprintf("dwarf_attrlist: %s\n", dwarf_errmsg_by_number(err));
+    if(err)
         return err;
-    }
 
     return 0;
 }
@@ -288,15 +233,12 @@ static int get_die_attribute(Dwarf_Die from, Dwarf_Half whichattr,
         return -1;
 
     Dwarf_Error d_error = NULL;
-
     dwarf_attr(from, whichattr, attr, &d_error);
 
     int err = dwarf_errno(d_error);
 
-    if(err){
-        dprintf("dwarf_attr: %s\n", dwarf_errmsg_by_number(err));
+    if(err)
         return err;
-    }
 
     return 0;
 }
@@ -321,23 +263,21 @@ static int get_form_data_from_attr(Dwarf_Attribute attr, void *data, int way){
 
     int err = dwarf_errno(d_error);
 
-    if(err){
-        dprintf("dwarf_form*data: %s\n", dwarf_errmsg_by_number(err));
+    if(err)
         return err;
-    }
 
     return 0;
 }
 
 #define NON_COMPILE_TIME_CONSTANT_SIZE ((Dwarf_Unsigned)-1)
 
-static int IS_POINTER = 0;
+static int lex_block_count = 0, anon_struct_count = 0, anon_union_count = 0,
+           anon_enum_count = 0, IS_POINTER = 0;
 
 static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
-        Dwarf_Die die, size_t maxlen, size_t curlen, char *outtype,
-        Dwarf_Unsigned *outsize, int is_parameter, int level){
-    char *die_name = get_die_name_internal(die);
-    Dwarf_Half die_tag = get_die_tag(die);
+        Dwarf_Die die, char *outtype, Dwarf_Unsigned *outsize, int maxlen, int level){
+    char *die_name = get_die_name_raw(die);
+    Dwarf_Half die_tag = get_die_tag_raw(die);
 
     /* This has to be done with a global variable...
      * This variable is used to calculate data size.
@@ -364,8 +304,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             return;
         }
 
-        generate_data_type_info(dbg, compile_unit, typedie, maxlen, curlen,
-                outtype, outsize, 1, level+1);
+        generate_data_type_info(dbg, compile_unit, typedie,
+                outtype, outsize, maxlen, level+1);
 
         return;
     }
@@ -380,8 +320,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         if(!typedie)
             strcat(outtype, "void");
         else{
-            generate_data_type_info(dbg, compile_unit, typedie, maxlen, curlen,
-                    outtype, outsize, 0, level+1);
+            generate_data_type_info(dbg, compile_unit, typedie,
+                    outtype, outsize, maxlen, level+1);
         }
 
         strcat(outtype, "(");
@@ -396,8 +336,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         }
 
         for(;;){
-            generate_data_type_info(dbg, compile_unit, parameter_die, maxlen,
-                    curlen, outtype, outsize, 0, level+1);
+            generate_data_type_info(dbg, compile_unit, parameter_die,
+                    outtype, outsize, maxlen, level+1);
 
             Dwarf_Die sibling_die = get_sibling_die(dbg, parameter_die);
 
@@ -434,11 +374,6 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             Dwarf_Error d_error = NULL;
             dwarf_bytesize(die, outsize, &d_error);
         }
-        // XXX initialize outsize here, or no?
-        // write_tabs(level);
-        //printf("Level %d: at end of DIE chain, got type: '"RED"%s"RESET"'\n", level, type);
-
-        //dwarf_bytesize(die, outsize, NULL);
 
         return;
     }
@@ -452,9 +387,6 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
                 die_tag == DW_TAG_const_type ||
                 die_tag == DW_TAG_volatile_type ||
                 die_tag == DW_TAG_restrict_type)){
-
-        //write_tabs(level);
-        //printf("before, got tag str '%s'\n", dwarf_type_tag_to_string(die_tag));
         char tag_str[96] = {0};
 
         /* It seems that if a DW_TAG_*_type has no attributes,
@@ -467,9 +399,6 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             strcat(tag_str, dwarf_type_tag_to_string(die_tag));
             strcat(tag_str, " void");
         }
-
-        //write_tabs(level);
-        //printf("attrcnt == 0, tag type is '"GREEN"%s"RESET"'\n", get_tag_name(die_tag));
 
         if(strlen(outtype) + strlen(tag_str) >= maxlen){
             write_tabs(level);
@@ -491,8 +420,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
     // write_tabs(level);
     // printf("Level %d: got type: '"RED"%s"RESET"'\n", level, type);
 
-    generate_data_type_info(dbg, compile_unit, typedie, maxlen, curlen,
-            outtype, outsize, 0, level+1);
+    generate_data_type_info(dbg, compile_unit, typedie,
+            outtype, outsize, maxlen, level+1);
 
     if(die_tag == DW_TAG_array_type){
         /* Number of subrange DIEs denote how many dimensions */
@@ -511,7 +440,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
             if(get_form_data_from_attr(count_attr, &nmemb, FORMUDATA)){
                 /* Variable length array determined at runtime */
-                strcat(outtype, ARRAY_TYPE_STR);
+                const char *a = "[]";
+                strcat(outtype, a);
                 *outsize = NON_COMPILE_TIME_CONSTANT_SIZE;
                 break;
             }
@@ -560,7 +490,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         //write_tabs(level);
         //printf("typedie %p\n", typedie);
 
-        char *typedeftype = get_die_name_internal(typedie);
+        char *typedeftype = get_die_name_raw(typedie);
 
         //write_tabs(level);
         //printf("got underlying typedef type '%s'\n", typedeftype);
@@ -631,28 +561,23 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
     strncat(outtype, type_tag_string, type_tag_len);
 }
 
-// XXX generates the data type name (ex: const char **) and
-// fetches whatever sizeof(data type) yields on the host machine
 static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
         die_t **die){
-    Dwarf_Error d_error;
-    Dwarf_Attribute attr;
+    Dwarf_Error d_error = NULL;
+    Dwarf_Attribute attr = NULL;
+
     int ret = dwarf_attr((*die)->die_dwarfdie, DW_AT_type, &attr, &d_error);
 
-    if(ret != DW_DLV_OK){
-        //        dprintf("dwarf_attr ret != DW_DLV_OK, returning\n");
+    if(ret != DW_DLV_OK)
         return;
-    }
 
     dwarf_global_formref(attr, &((*die)->die_datatypedieoffset),
             &d_error);
     ret = dwarf_offdie(dwarfinfo->di_dbg, (*die)->die_datatypedieoffset,
             &((*die)->die_datatypedie), &d_error);
 
-    if(ret != DW_DLV_OK){
-        //      dprintf("no data type die, returning\n");
+    if(ret != DW_DLV_OK)
         return;
-    }
 
     Dwarf_Half tag;
     dwarf_tag((*die)->die_datatypedie, &tag, &d_error);
@@ -676,13 +601,12 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
          *              DW_TAG_base_type (char)
          */
         enum { maxlen = 256 };
-        size_t curlen = 0;
 
         char name[maxlen] = {0};
         Dwarf_Unsigned size = 0;
 
         generate_data_type_info(dwarfinfo->di_dbg, compile_unit,
-                (*die)->die_datatypedie, maxlen, curlen, name, &size, 0, 0);
+                (*die)->die_datatypedie, name, &size, maxlen, 0);
 
         IS_POINTER = 0;
 
@@ -783,17 +707,10 @@ static char *get_die_data_type(die_t *die){
 
     char *name = NULL;
     dwarf_diename(die->die_datatypedie, &name, &d_error);
-    /*Dwarf_Unsigned ret = dwarf_errno(d_error);
-
-      if(ret){
-      printf("dwarf_diename: %s (%#llx)\n", dwarf_errmsg_by_number(ret), ret);
-
-      }*/
 
     return name;
 }
 
-static int cnt = 1;
 static void describe_die_internal(die_t *die, int level){
     if(!die)
         return;
@@ -808,8 +725,6 @@ static void describe_die_internal(die_t *die, int level){
             varnamecolorstr, die->die_diename, RESET,
             die->die_haschildren, die->die_datatypedieoffset!=0?CYAN:"",
             die->die_datatypedieoffset, die->die_datatypedieoffset!=0?RESET:"");
-    if(level == 1)
-        cnt++;
 
     if(die->die_datatypedieoffset!=0){
         printf(", type = '"LIGHT_BLUE"%s"RESET"'", die->die_datatypename);
@@ -829,10 +744,10 @@ static void describe_die_internal(die_t *die, int level){
 
     if(die->die_tag == DW_TAG_member){
         char *parentname = die->die_parent->die_diename;
-        printf(", offset = "GREEN"%s"RESET"+"LIGHT_GREEN"%#llx"RESET"", parentname, die->die_memb_off);
+        printf(", offset = "GREEN"%s"RESET"+"LIGHT_GREEN"%#llx"RESET"",
+                parentname, die->die_memb_off);
     }
 
-    // XXX later, abstract origin is '%s'
     if(die->die_inlinedsub)
         printf(", abstract origin %s%#llx%s", MAGENTA, die->die_aboriginoff, RESET);
 
@@ -850,18 +765,11 @@ static void describe_die_internal(die_t *die, int level){
     }
 }
 
-void die_describe(die_t *die){
-    describe_die_internal(die, 0);
-}
-
 static die_t *create_new_die(dwarfinfo_t *dwarfinfo, void *compile_unit,
         Dwarf_Die based_on){
-    // XXX do I don't have to waste time setting stuff to NULL
     die_t *d = calloc(1, sizeof(die_t));
     d->die_dwarfdie = based_on;
 
-    // XXX some of the stuff in this function will fail,
-    // it is fine
     copy_die_info(dwarfinfo, compile_unit, &d);
 
     if(d->die_haschildren){
@@ -895,48 +803,46 @@ static int should_add_die_to_tree(die_t *die){
 static die_t *CUR_PARENTS[1000] = {0};
 
 static void add_die_to_tree(die_t *current, int level){
+    if(level == 0){
+        CUR_PARENTS[level] = current;
+        return;
+    }
+
     if(current->die_haschildren){
         CUR_PARENTS[level] = current;
 
-        if(level > 0){
-            die_t *parent = CUR_PARENTS[level - 1];
+        die_t *parent = CUR_PARENTS[level - 1];
 
-            if(parent){
-                die_t **children = realloc(parent->die_children,
-                        (++parent->die_numchildren) * sizeof(die_t));
-                parent->die_children = children;
-                parent->die_children[parent->die_numchildren - 1] = current;
-                parent->die_children[parent->die_numchildren] = NULL;
+        if(parent){
+            die_t **children = realloc(parent->die_children,
+                    (++parent->die_numchildren) * sizeof(die_t));
+            parent->die_children = children;
+            parent->die_children[parent->die_numchildren - 1] = current;
+            parent->die_children[parent->die_numchildren] = NULL;
 
-                current->die_parent = parent;
-            }
+            current->die_parent = parent;
         }
     }
     else{
-        if(level > 0){
-            int sub = 1;
-            die_t *parent = CUR_PARENTS[level - sub];
+        int sub = 1;
+        die_t *parent = CUR_PARENTS[level - sub];
 
-            /* Find the closest valid parent. We could be multiple levels
-             * deep without seeing `level` amount of parent DIEs.
-             */
-            while(!parent)
-                parent = CUR_PARENTS[level - (++sub)];
+        /* Find the closest valid parent. We could be multiple levels
+         * deep without seeing `level` amount of parent DIEs.
+         */
+        while(!parent)
+            parent = CUR_PARENTS[level - (++sub)];
 
-            if(parent){
-                die_t **children = realloc(parent->die_children,
-                        (++parent->die_numchildren) * sizeof(die_t));
-                parent->die_children = children;
-                parent->die_children[parent->die_numchildren - 1] = current;
-                parent->die_children[parent->die_numchildren] = NULL;
+        if(parent){
+            die_t **children = realloc(parent->die_children,
+                    (++parent->die_numchildren) * sizeof(die_t));
+            parent->die_children = children;
+            parent->die_children[parent->die_numchildren - 1] = current;
+            parent->die_children[parent->die_numchildren] = NULL;
 
-                current->die_parent = parent;
-            }
+            current->die_parent = parent;
         }
     }
-
-    //    write_tabs(level);
-    //  describe_die(current, level);
 }
 
 /* This tree only contains DIEs with these tags:
@@ -1025,59 +931,12 @@ static void display_die_tree_internal(die_t *die, int level){
     }
 }
 
+void die_describe(die_t *die){
+    describe_die_internal(die, 0);
+}
+
 void die_display_die_tree_starting_from(die_t *die){
     display_die_tree_internal(die, 0);
-}
-
-void die_find_by_name(die_t *die, const char *name, die_t **out){
-    if(*out)
-        return;
-
-    if(!die)
-        return;
-
-    if(die->die_diename && strcmp(die->die_diename, name) == 0){
-        *out = die;
-        return;
-    }
-
-    if(!die->die_haschildren)
-        return;
-    else{
-        int idx = 0;
-        die_t *child = die->die_children[idx];
-
-        while(child){
-            die_find_by_name(child, name, out);
-            child = die->die_children[++idx];
-        }
-    }
-}
-
-void die_find_function_die_by_pc(die_t *die, uint64_t pc, die_t **out){
-    if(*out)
-        return;
-
-    if(!die)
-        return;
-
-    if(die->die_tag == DW_TAG_subprogram &&
-            pc >= die->die_low_pc && pc <= die->die_high_pc){
-        *out = die;
-        return;
-    }
-
-    if(!die->die_haschildren)
-        return;
-    else{
-        int idx = 0;
-        die_t *child = die->die_children[idx];
-
-        while(child){
-            die_find_function_die_by_pc(child, pc, out);
-            child = die->die_children[++idx];
-        }
-    }
 }
 
 char *die_get_name(die_t *die){
@@ -1087,13 +946,63 @@ char *die_get_name(die_t *die){
     return die->die_diename;
 }
 
-/* Chapter 2.3:
- * The ownership relation of debugging information entries is achieved
- * naturally because the debugging information is represented as a tree.
- * The nodes of the tree are the debugging information entries themselves. 
- * The child entries of any node are exactly those debugging information 
- * entries owned by that node.
- */
+uint64_t die_get_high_pc(die_t *die){
+    if(!die)
+        return 0;
+
+    return die->die_high_pc;
+}
+
+uint64_t die_get_low_pc(die_t *die){
+    if(!die)
+        return 0;
+
+    return die->die_low_pc;
+}
+
+static int die_is_func_in_range(die_t *die, void *pc){
+    return die->die_tag == DW_TAG_subprogram &&
+        (uint64_t)pc >= die->die_low_pc && (uint64_t)pc <= die->die_high_pc;
+}
+
+static int die_name_matches(die_t *die, void *name){
+    return die->die_diename && strcmp(die->die_diename, (const char *)name) == 0;
+}
+
+static void die_search_internal(die_t *die, void *data,
+        int (*comparefxn)(die_t *, void *), die_t **out){
+    if(*out || !die)
+        return;
+
+    if(comparefxn(die, data)){
+        *out = die;
+        return;
+    }
+
+    if(!die->die_haschildren)
+        return;
+    else{
+        int idx = 0;
+        die_t *child = die->die_children[idx];
+
+        while(child){
+            die_search_internal(child, data, comparefxn, out);
+            child = die->die_children[++idx];
+        }
+    }
+}
+
+void die_search(die_t *start, void *data, int way, die_t **out){
+    int (*comparefxn)(die_t *, void *) = NULL;
+
+    if(way == DIE_SEARCH_IF_NAME_MATCHES)
+        comparefxn = die_name_matches;
+    else if(way == DIE_SEARCH_FUNCTION_BY_PC)
+        comparefxn = die_is_func_in_range;
+
+    die_search_internal(start, data, comparefxn, out);
+}
+
 int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
         void *compile_unit, die_t **_root_die, char **error){
     int is_info = 1;
@@ -1147,13 +1056,4 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
     *_root_die = root_die;
 
     return 0;
-}
-
-// XXX need two tab level indent for printfs
-void display_from_root_die(die_t *root_die){
-    //    dprintf("root_die %p\n", root_die);
-
-    printf("\t\troot die <TAG: '%s'>:\n"
-            "\t\t\tdie name: '%s'\n",
-            root_die->die_tagname, root_die->die_diename);
 }

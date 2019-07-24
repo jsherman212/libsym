@@ -161,10 +161,12 @@ int main(int argc, char **argv, const char **envp){
                     }
                 case CHOICE_FIND_FUNCTION_DIE_BY_PC:
                     {
-                        void *comp_root_die =
-                            sym_get_compilation_unit_root_die(current_compile_unit);
-
-                        sym_display_die_tree_starting_from(comp_root_die);
+                        void *d = current_die;
+                        
+                        if(!current_die)
+                            d = sym_get_compilation_unit_root_die(current_compile_unit);
+                        
+                        sym_display_die_tree_starting_from(d);
 
                         uint64_t pc = 0;
                         printf("\nEnter PC: ");
