@@ -12,10 +12,12 @@
 #define RED "\033[31m"
 #define CYAN "\033[36m"
 #define MAGENTA "\033[35m"
+#define YELLOW "\033[33m"
 #define LIGHT_MAGENTA "\033[95m"
 #define LIGHT_RED "\033[91m"
 #define LIGHT_YELLOW "\033[93m"
 #define LIGHT_BLUE "\033[94m" // XXX purple?
+#define YELLOW_BACKGROUND "\033[43m"
 #define RESET "\033[39m"
 
 typedef struct die die_t;
@@ -57,6 +59,10 @@ struct die {
      */
     int die_inlinedsub;
     Dwarf_Unsigned die_aboriginoff;
+
+    /* Where a subroutine, lexical block, etc starts and ends */
+    Dwarf_Unsigned die_low_pc;
+    Dwarf_Unsigned die_high_pc;
 };
 
 static inline void write_tabs(int cnt){
@@ -482,7 +488,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             outtype, outsize, 0, level+1);
 
     if(die_tag == DW_TAG_array_type){
-        /* Number of subranges denote how many dimensions */
+        /* Number of subrange DIEs denote how many dimensions */
         Dwarf_Die subrange_die = get_child_die(die);
 
         if(!subrange_die)
@@ -652,35 +658,35 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
                 &d_error);
         dwarf_bytesize((*die)->die_datatypedie, &((*die)->die_databytessize),
                 &d_error);
-        return;
     }
+    else{
+        /* Otherwise, we have to follow the chain of DIEs that make up this
+         * data type. For example:
+         *      char **argv;
+         *
+         *      DW_TAG_pointer_type ->
+         *          DW_TAG_pointer_type ->
+         *              DW_TAG_base_type (char)
+         */
+        enum { maxlen = 256 };
+        size_t curlen = 0;
 
-    /* Otherwise, we have to follow the chain of DIEs that make up this
-     * data type. For example:
-     *      char **argv;
-     *
-     *      DW_TAG_pointer_type ->
-     *          DW_TAG_pointer_type ->
-     *              DW_TAG_base_type (char)
-     */
-    enum { maxlen = 256 };
-    size_t curlen = 0;
+        char name[maxlen] = {0};
+        Dwarf_Unsigned size = 0;
 
-    char name[maxlen] = {0};
-    Dwarf_Unsigned size = 0;
+        generate_data_type_info(dwarfinfo->di_dbg, compile_unit,
+                (*die)->die_datatypedie, maxlen, curlen, name, &size, 0, 0);
 
-    generate_data_type_info(dwarfinfo->di_dbg, compile_unit,
-            (*die)->die_datatypedie, maxlen, curlen, name, &size, 0, 0);
+        IS_POINTER = 0;
 
-    IS_POINTER = 0;
-
-    (*die)->die_databytessize = size;
-    (*die)->die_datatypename = strdup(name);
+        (*die)->die_databytessize = size;
+        (*die)->die_datatypename = strdup(name);
+    }
 }
 
 static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
         die_t **die){
-    Dwarf_Error d_error;
+    Dwarf_Error d_error = NULL;
 
     int ret = dwarf_diename((*die)->die_dwarfdie, &((*die)->die_diename),
             &d_error);
@@ -762,7 +768,36 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
 
     get_die_data_type_info(dwarfinfo, compile_unit, die);
 
+    dwarf_lowpc((*die)->die_dwarfdie, &((*die)->die_low_pc), &d_error);
 
+    Dwarf_Half retform = 0;
+    enum Dwarf_Form_Class retformclass = 0;
+    dwarf_highpc_b((*die)->die_dwarfdie, &((*die)->die_high_pc), &retform,
+            &retformclass, &d_error);
+
+    (*die)->die_high_pc += (*die)->die_low_pc;
+
+    /*
+
+    Dwarf_Attribute low_pc_attr = NULL;
+
+    get_die_attribute((*die)->die_dwarfdie, DW_AT_low_pc, &low_pc_attr);
+
+    dprintf("low pc attr %p for DIE '%s'\n", low_pc_attr, (*die)->die_diename);
+
+    if(low_pc_attr)
+        get_form_data_from_die(low_pc_attr, &((*die)->die_low_pc), FORMUDATA);
+
+    Dwarf_Attribute high_pc_attr = NULL;
+
+    get_die_attribute((*die)->die_dwarfdie, DW_AT_high_pc, &high_pc_attr);
+
+    if(high_pc_attr){
+        get_form_data_from_die(high_pc_attr, &((*die)->die_high_pc), FORMUDATA);
+
+        (*die)->die_high_pc += (*die)->die_low_pc;
+    }
+    */
     //dprintf("ret %d\n", ret);
     /*if(ret)
       return ret;
@@ -818,6 +853,13 @@ static void describe_die(die_t *die, int level){
             printf(", sizeof(%s%s%s) = "LIGHT_YELLOW"%#llx"RESET"",
                     varnamecolorstr, die->die_diename, RESET, die->die_databytessize);
         }
+    }
+
+    if(die->die_tag == DW_TAG_compile_unit ||
+            die->die_tag == DW_TAG_subprogram ||
+            die->die_tag == DW_TAG_lexical_block){
+        printf(", low PC = "YELLOW"%#llx"RESET", high PC = "YELLOW"%#llx"RESET"",
+                die->die_low_pc, die->die_high_pc);
     }
 
     // XXX later, abstract origin is '%s'
@@ -916,8 +958,8 @@ static void add_die_to_tree(die_t *current, int level){
         }
     }
 
-//    write_tabs(level);
-  //  describe_die(current, level);
+    //    write_tabs(level);
+    //  describe_die(current, level);
 }
 
 /* This tree only contains DIEs with these tags:
@@ -1033,7 +1075,7 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
     CUR_PARENTS[0] = root_die;
 
     // if(strcmp(root_die->die_diename, "source/thread.c") != 0)
-      //   return 0;
+    //   return 0;
     construct_die_tree(dwarfinfo, compile_unit, root_die, NULL, root_die, 0);
 
     printf("output of display_die_tree:\n\n");
