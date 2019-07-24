@@ -13,6 +13,7 @@
 #define CYAN "\033[36m"
 #define MAGENTA "\033[35m"
 #define YELLOW "\033[33m"
+#define LIGHT_GREEN "\033[92m"
 #define LIGHT_MAGENTA "\033[95m"
 #define LIGHT_RED "\033[91m"
 #define LIGHT_YELLOW "\033[93m"
@@ -63,6 +64,9 @@ struct die {
     /* Where a subroutine, lexical block, etc starts and ends */
     Dwarf_Unsigned die_low_pc;
     Dwarf_Unsigned die_high_pc;
+
+    /* Where a member is in a structure, union, etc */
+    Dwarf_Unsigned die_memb_off;
 };
 
 static inline void write_tabs(int cnt){
@@ -282,12 +286,12 @@ static int get_die_attribute(Dwarf_Die from, Dwarf_Half whichattr,
 
     Dwarf_Error d_error = NULL;
 
-    dwarf_attr(from, DW_AT_count, attr, &d_error);
+    dwarf_attr(from, whichattr, attr, &d_error);
 
     int err = dwarf_errno(d_error);
 
     if(err){
-        //dprintf("dwarf_attr: %s\n", dwarf_errmsg_by_number(err));
+        dprintf("dwarf_attr: %s\n", dwarf_errmsg_by_number(err));
         return err;
     }
 
@@ -299,7 +303,7 @@ enum {
     FORMUDATA
 };
 
-static int get_form_data_from_die(Dwarf_Attribute attr, void *data, int way){
+static int get_form_data_from_attr(Dwarf_Attribute attr, void *data, int way){
     if(!data)
         return -1;
 
@@ -502,7 +506,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
             Dwarf_Unsigned nmemb = 0;
 
-            if(get_form_data_from_die(count_attr, &nmemb, FORMUDATA)){
+            if(get_form_data_from_attr(count_attr, &nmemb, FORMUDATA)){
                 /* Variable length array determined at runtime */
                 strcat(outtype, ARRAY_TYPE_STR);
                 *outsize = NON_COMPILE_TIME_CONSTANT_SIZE;
@@ -694,16 +698,6 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
     ret = dwarf_dieoffset((*die)->die_dwarfdie, &((*die)->die_dieoffset),
             &d_error);
 
-    /*
-       if(ret){
-       printf("dwarf_diename: error: %s\n", dwarf_errmsg_by_number(ret));
-       }
-       */
-
-    //dprintf("ret %d\n", ret);
-    /*if(ret)
-      return ret;
-      */
     ret = dwarf_tag((*die)->die_dwarfdie, &((*die)->die_tag), &d_error);
 
     // XXX: inside iosdbg get rid of this auto naming so I can test
@@ -736,10 +730,6 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
         }
     }
 
-    //dprintf("ret %d\n", ret);
-    /*if(ret)
-      return ret;
-      */
     ret = dwarf_get_TAG_name((*die)->die_tag,
             (const char **)&((*die)->die_tagname));
 
@@ -752,17 +742,8 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
         }
     }
 
-    //dprintf("ret %d\n", ret);
-    /*if(ret)
-      return ret;
-      */
     ret = dwarf_attrlist((*die)->die_dwarfdie, &((*die)->die_attrs),
             &((*die)->die_attrcnt), &d_error);
-
-    //dprintf("ret %d\n", ret);
-    /*if(ret)
-      return ret;
-      */
     ret = dwarf_die_abbrev_children_flag((*die)->die_dwarfdie,
             &((*die)->die_haschildren));
 
@@ -777,31 +758,14 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
 
     (*die)->die_high_pc += (*die)->die_low_pc;
 
-    /*
+    Dwarf_Attribute memb_attr = NULL;
+    get_die_attribute((*die)->die_dwarfdie, DW_AT_data_member_location,
+            &memb_attr);
 
-    Dwarf_Attribute low_pc_attr = NULL;
+    // XXX check for location list once expression evaluator is done
+    if(memb_attr)
+        get_form_data_from_attr(memb_attr, &((*die)->die_memb_off), FORMUDATA);
 
-    get_die_attribute((*die)->die_dwarfdie, DW_AT_low_pc, &low_pc_attr);
-
-    dprintf("low pc attr %p for DIE '%s'\n", low_pc_attr, (*die)->die_diename);
-
-    if(low_pc_attr)
-        get_form_data_from_die(low_pc_attr, &((*die)->die_low_pc), FORMUDATA);
-
-    Dwarf_Attribute high_pc_attr = NULL;
-
-    get_die_attribute((*die)->die_dwarfdie, DW_AT_high_pc, &high_pc_attr);
-
-    if(high_pc_attr){
-        get_form_data_from_die(high_pc_attr, &((*die)->die_high_pc), FORMUDATA);
-
-        (*die)->die_high_pc += (*die)->die_low_pc;
-    }
-    */
-    //dprintf("ret %d\n", ret);
-    /*if(ret)
-      return ret;
-      */
     return ret;
 }
 
@@ -860,6 +824,11 @@ static void describe_die(die_t *die, int level){
             die->die_tag == DW_TAG_lexical_block){
         printf(", low PC = "YELLOW"%#llx"RESET", high PC = "YELLOW"%#llx"RESET"",
                 die->die_low_pc, die->die_high_pc);
+    }
+
+    if(die->die_tag == DW_TAG_member){
+        char *parentname = die->die_parent->die_diename;
+        printf(", offset = "GREEN"%s"RESET"+"LIGHT_GREEN"%#llx"RESET"", parentname, die->die_memb_off);
     }
 
     // XXX later, abstract origin is '%s'
