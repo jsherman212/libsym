@@ -18,6 +18,9 @@ typedef struct {
 } compunit_t;
 
 void cu_display_compilation_units(dwarfinfo_t *dwarfinfo){
+    if(!dwarfinfo)
+        return;
+
     int cnt = 1;
 
     LL_FOREACH(dwarfinfo->di_compunits, current){
@@ -38,14 +41,34 @@ void cu_display_compilation_units(dwarfinfo_t *dwarfinfo){
     }
 }
 
-void *cu_find_compilation_unit_by_name(dwarfinfo_t *dwarfinfo, char *name){
-    LL_FOREACH(dwarfinfo->di_compunits, current){
-        compunit_t *unit = current->data;
+compunit_t *cu_find_compilation_unit_by_name(dwarfinfo_t *dwarfinfo, char *name){
+    if(!dwarfinfo || !name)
+        return NULL;
 
-        char *cuname = die_get_name(unit->cu_root_die);
+    LL_FOREACH(dwarfinfo->di_compunits, current){
+        compunit_t *cu = current->data;
+
+        char *cuname = die_get_name(cu->cu_root_die);
 
         if(strcmp(cuname, name) == 0)
-            return unit;
+            return cu;
+    }
+
+    return NULL;
+}
+
+compunit_t *cu_find_compilation_unit_by_pc(dwarfinfo_t *dwarfinfo, uint64_t pc){
+    if(!dwarfinfo)
+        return NULL;
+
+    LL_FOREACH(dwarfinfo->di_compunits, current){
+        compunit_t *cu = current->data;
+
+        Dwarf_Unsigned root_die_low_pc = die_get_low_pc(cu->cu_root_die);
+        Dwarf_Unsigned root_die_high_pc = die_get_high_pc(cu->cu_root_die);
+        
+        if(pc >= root_die_low_pc && pc <= root_die_high_pc)
+            return cu;
     }
 
     return NULL;

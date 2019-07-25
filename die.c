@@ -30,6 +30,12 @@ struct die {
     char **die_srcfiles;
     Dwarf_Signed die_srcfilescnt;
 
+    /* If this DIE represents a compilation unit, the following
+     * two are non-NULL.
+     */
+    Dwarf_Line *die_srclines;
+    Dwarf_Signed die_srclinescnt;
+
     Dwarf_Half die_tag;
     char *die_tagname;
 
@@ -71,6 +77,8 @@ struct die {
     /* Where a member is in a structure, union, etc */
     Dwarf_Unsigned die_memb_off;
 };
+
+void die_search(die_t *, void *, int, die_t **);
 
 static inline void write_tabs(int cnt){
     for(int i=0; i<cnt; i++)
@@ -748,6 +756,10 @@ static void describe_die_internal(die_t *die, int level){
                 parentname, die->die_memb_off);
     }
 
+    if(level == 0){
+        printf(", srclinescnt = "MAGENTA"%lld"RESET"", die->die_srclinescnt);
+    }
+
     if(die->die_inlinedsub)
         printf(", abstract origin %s%#llx%s", MAGENTA, die->die_aboriginoff, RESET);
 
@@ -931,7 +943,7 @@ static void display_die_tree_internal(die_t *die, int level){
     }
 }
 
-void die_describe(die_t *die){
+void die_display(die_t *die){
     describe_die_internal(die, 0);
 }
 
@@ -953,11 +965,146 @@ uint64_t die_get_high_pc(die_t *die){
     return die->die_high_pc;
 }
 
+static char *get_dwarf_line_filename(Dwarf_Line line){
+    if(!line)
+        return NULL;
+
+    Dwarf_Error d_error = NULL;
+    char *filename = NULL;
+
+    dwarf_linesrc(line, &filename, &d_error);
+
+    return filename;
+}
+
+static Dwarf_Unsigned get_dwarf_line_lineno(Dwarf_Line line){
+    if(!line)
+        return 0;
+
+    Dwarf_Error d_error = NULL;
+    Dwarf_Unsigned lineno = 0;
+
+    dwarf_lineno(line, &lineno, &d_error);
+
+    return lineno;
+}
+
+static Dwarf_Addr get_dwarf_line_virtual_addr(Dwarf_Line line){
+    if(!line)
+        return 0;
+
+    Dwarf_Error d_error = NULL;
+    Dwarf_Addr lineaddr = 0;
+
+    dwarf_lineaddr(line, &lineaddr, &d_error);
+
+    return lineaddr;
+}
+
+void die_get_line_info_from_pc(die_t *die, uint64_t pc, char **srcfilename,
+        char **srcfunction, uint64_t *srclineno){
+    /* Not a compilation unit DIE */
+    if(!die || !die->die_srclines)
+        return;
+
+    for(Dwarf_Signed i=0; i<die->die_srclinescnt; i++){
+        Dwarf_Line line = die->die_srclines[i];
+
+        if(pc == get_dwarf_line_virtual_addr(line)){
+            *srcfilename = get_dwarf_line_filename(line);
+            *srclineno = get_dwarf_line_lineno(line);
+
+            die_t *fxndie = NULL;
+            die_search(die, (void *)pc, DIE_SEARCH_FUNCTION_BY_PC, &fxndie);
+
+            // XXX concat(outbuffer...
+            if(!fxndie){
+                dprintf("Couldn't find function DIE with pc %#llx????\n", pc);
+                return;
+            }
+
+            *srcfunction = fxndie->die_diename;
+
+            return;
+        }
+    }
+}
+
 uint64_t die_get_low_pc(die_t *die){
     if(!die)
         return 0;
 
     return die->die_low_pc;
+}
+
+die_t **die_get_parameters(die_t *die, int *len){
+    /* not a function DIE */
+    if(!die || die->die_tag != DW_TAG_subprogram)
+        return NULL;
+
+    /* We don't have to recurse farther down the DIE chain,
+     * parameters will be direct descendants.
+     */
+    die_t **params = malloc(sizeof(die_t));
+
+    int idx = 0;
+    die_t *child = die->die_children[idx];
+
+    while(child){
+        if(child->die_tag == DW_TAG_formal_parameter){
+            die_t **params_rea = realloc(params, sizeof(die_t) * ++(*len));
+            params = params_rea;
+            params[(*len) - 1] = child;
+            params[*len] = NULL;
+        }
+
+        child = die->die_children[++idx];
+    }
+    
+    return params;
+}
+
+uint64_t die_lineno_to_pc(die_t *die, uint64_t *lineno){
+    if(!die || !die->die_srclines)
+        return 0;
+    
+    if(!lineno)
+        return 0;
+
+    Dwarf_Error d_error = NULL;
+
+    /* Find the closest line to lineno. Sometimes the source file does
+     * not accurately reflect the compiled program.
+     */
+    uint64_t closestlineno = 0;
+    Dwarf_Line closestline = NULL;
+
+    uint64_t linepassedin = *lineno;
+
+    for(Dwarf_Signed i=0; i<die->die_srclinescnt; i++){
+        Dwarf_Line line = die->die_srclines[i];
+        Dwarf_Unsigned curlineno = get_dwarf_line_lineno(line);
+
+        uint64_t current = llabs((int64_t)(closestlineno - linepassedin));
+        uint64_t diff = llabs((int64_t)(curlineno - linepassedin));
+
+        /* exact match */
+        if(diff == 0){
+            Dwarf_Addr curlineaddr = get_dwarf_line_virtual_addr(line);
+            return curlineaddr;
+        }
+        else if(diff < current){
+            closestlineno = curlineno;
+            closestline = line;
+        }
+    }
+
+    // XXX concat(outbuffer...
+    printf("Line %lld doesn't exist, auto-adjusted to line %lld\n",
+            linepassedin, closestlineno);
+    *lineno = closestlineno;
+
+    return get_dwarf_line_virtual_addr(closestline);
 }
 
 static int die_is_func_in_range(die_t *die, void *pc){
@@ -1008,7 +1155,7 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
     int is_info = 1;
     Dwarf_Error d_error = NULL;
 
-    Dwarf_Die cu_rootdie;
+    Dwarf_Die cu_rootdie = NULL;
     int ret = dwarf_siblingof_b(dwarfinfo->di_dbg, NULL, is_info,
             &cu_rootdie, &d_error);
 
@@ -1027,32 +1174,17 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
 
     construct_die_tree(dwarfinfo, compile_unit, root_die, NULL, root_die, 0);
 
+    if(dwarf_srclines(root_die->die_dwarfdie, &root_die->die_srclines,
+                &root_die->die_srclinescnt, &d_error)){
+        printf("dwarf_srclines: %s\n", dwarf_errmsg_by_number(dwarf_errno(d_error)));
+    }
+
     printf("output of display_die_tree:\n\n");
 
     display_die_tree_internal(root_die, 0);
 
     printf("end display_die_tree output\n\n");
 
-    /*
-    putchar('\n');
-    printf("Children for root DIE '%s':\n", root_die->die_diename);
-
-    die_t **children = root_die->die_children;
-
-    int nonnull = 0;
-    for(int i=0; i<root_die->die_numchildren; i++){
-        die_t *d = children[i];
-
-        printf("%d: DIE '%s'\n", i, d->die_diename);
-
-        if(d->die_diename)
-            nonnull++;
-    }
-
-    printf("%d children, and %d nonnull children\n\n",
-            root_die->die_numchildren, nonnull);
-
-    */
     *_root_die = root_die;
 
     return 0;
