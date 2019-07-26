@@ -62,8 +62,6 @@ void linkedlist_delete(struct linkedlist *list, void *data_to_remove){
         return;
 
     if(list->front->data == data_to_remove){
-    //    printf("list->front %p\n", list->front);
-        //free(list->front);
         struct node_t *freenode = list->front;
         list->front = list->front->next;
         free(freenode);
@@ -82,8 +80,6 @@ void linkedlist_delete(struct linkedlist *list, void *data_to_remove){
              * modify connections to skip this one.
              */
             previous->next = current->next;
-      //      printf("current %p\n", current);
-            //free(current);
             current = NULL;
             return;
         }
@@ -91,7 +87,6 @@ void linkedlist_delete(struct linkedlist *list, void *data_to_remove){
 }
 
 void linkedlist_free(struct linkedlist *list){
-    printf("list->front %p\n", list->front);
     free(list->front);
     list->front = NULL;
 

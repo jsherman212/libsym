@@ -154,6 +154,9 @@ int main(int argc, char **argv, const char **envp){
                         if(root_die){
                             printf("%#llx: %s:%s:%lld\n",
                                     pc, srcfilename, srcfunction, srcfilelineno);
+
+                            free(srcfilename);
+                            free(srcfunction);
                         }
                         else{
                             printf("\nCouldn't get line info\n");
@@ -284,6 +287,8 @@ int main(int argc, char **argv, const char **envp){
                                 sym_display_die(curparam);
                                 curparam = params[++idx];
                             }
+
+                            free(params);
                         }
 
                         printf("\n%d parameters\n\n", len);

@@ -52,9 +52,6 @@ void sym_end(dwarfinfo_t **_dwarfinfo){
 
     dwarfinfo_t *dwarfinfo = *_dwarfinfo;
 
-    //dprintf("_dwarfinfo %p *_dwarfinfo %p dwarfinfo %p\n",
-      //      _dwarfinfo, *_dwarfinfo, dwarfinfo);
-
     struct node_t *current = dwarfinfo->di_compunits->front;
 
     while(current){
@@ -65,33 +62,16 @@ void sym_end(dwarfinfo_t **_dwarfinfo){
 
         die_tree_free(dwarfinfo->di_dbg, root_die, 0);
         linkedlist_delete(dwarfinfo->di_compunits, cu);
-        dprintf("cu %p root_die %p\n", cu, root_die);
         cu_free(cu);
     }
-    /*
-    LL_FOREACH(dwarfinfo->di_compunits, current){
-        void *cu = current->data;
-        void *root_die = cu_get_root_die(cu);
 
-        die_tree_free(dwarfinfo->di_dbg, root_die, 0);
-        linkedlist_delete(dwarfinfo->di_compunits, cu);
-        dprintf("cu %p\n", cu);
-        cu_free(cu);
-        //current = current->next;
-
-    }
-    */
     close(dwarfinfo->di_fd);
 
     Dwarf_Error d_error = NULL;
     int ret = dwarf_finish(dwarfinfo->di_dbg, &d_error);
 
-    //if(ret == DW_DLV_ERROR)
-//        dwarf_dealloc(dwarfinfo->di_dbg, d_error, DW_DLA_ERROR);
-
     linkedlist_free(dwarfinfo->di_compunits);
     free(dwarfinfo);
-    //free(*_dwarfinfo);
 
     dprintf("here\n");
 }
