@@ -27,8 +27,16 @@
 
 typedef struct die die_t;
 
-struct dwarf_expr {
-    char placeholder;
+struct dwarf_locdesc {
+    uint64_t locdesc_lopc;
+    uint64_t locdesc_hipc;
+    int locdesc_bounded;
+    Dwarf_Small locdesc_op;
+    Dwarf_Unsigned locdesc_opd1;
+    Dwarf_Unsigned locdesc_opd2;
+    Dwarf_Unsigned locdesc_opd3;
+
+    struct dwarf_locdesc *locdesc_next;
 };
 
 struct die {
@@ -93,13 +101,13 @@ struct die {
     Dwarf_Unsigned die_memb_off;
 
     /* If this DIE has the attribute DW_AT_location, the following
-     * two are initialized.
+     * three are initialized.
      */
-    Dwarf_Ptr die_locexpr;
-    Dwarf_Unsigned die_locexprlen;
-
     Dwarf_Loc_Head_c die_loclisthead;
     Dwarf_Unsigned die_loclistcnt;
+
+    /* Will have die_loclistcnt elements */
+    struct dwarf_locdesc **die_locdescs;
 
     int die_dwarfdieneedsfree;
 };
@@ -749,6 +757,8 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die, int level){
     if(lret == DW_DLV_OK){
         Dwarf_Unsigned lcount = (*die)->die_loclistcnt;
 
+        (*die)->die_locdescs = calloc(lcount, sizeof(struct dwarf_locdesc));
+
         for(Dwarf_Unsigned i=0; i<lcount; i++){
             Dwarf_Small loclist_source = 0, lle_value = 0;
             Dwarf_Addr lopc = 0, hipc = 0;
@@ -769,10 +779,12 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die, int level){
                 LOCATION_LIST_ENTRY_SPLIT
             };
 
+            struct dwarf_locdesc *locdesc = calloc(1, sizeof(struct dwarf_locdesc));
+
             /* Low and high PC values here are based off the compilation unit's
              * (or root DIE) low PC value when
              * loclist_source == LOCATION_LIST_ENTRY. Otherwise,
-             * lle_value, lopc, and hipc aren't any use to us.
+             * lle_value, lopc, and hipc aren't of any use to us.
              */
             if(loclist_source == LOCATION_LIST_ENTRY){
                 die_t *cudie = CUR_PARENTS[0];
@@ -787,6 +799,13 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die, int level){
 
                 lopc += cudie->die_low_pc;
                 hipc += cudie->die_low_pc;
+
+                locdesc->locdesc_lopc = lopc;
+                locdesc->locdesc_hipc = hipc;
+
+                locdesc->locdesc_bounded = 1;
+                
+                // XXX continue making the locdesc
             }
 
             if(lret == DW_DLV_OK){
@@ -803,9 +822,21 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die, int level){
 
                     if(opret == DW_DLV_OK){
                         write_tabs(level);
-                        dprintf("[i: %lld j: %lld]: loclist_source: %d lle_value: %d op: 0x%04x opd1: %lld opd2: %lld opd3: %lld offsetForBranch: %lld lopc: %#llx hipc: %#llx\n",
-                                i, j, loclist_source, lle_value, op, opd1, opd2, opd3, offsetforbranch,
-                                lopc, hipc);
+                        dprintf("[i: %lld j: %lld]: expr offset: %#llx loclist_source: %d lle_value: %d op: 0x%04x opd1: %lld opd2: %lld opd3: %lld offsetForBranch: %lld lopc: %#llx hipc: %#llx\n",
+                                i, j, section_offset, loclist_source, lle_value, op, opd1, opd2, opd3,
+                                offsetforbranch, lopc, hipc);
+
+
+                        // XXX do not create stack for expressions when
+                        // offsetforbranch != 0 until I encounter something
+                        // that actually makes use of it 
+                        if(offsetforbranch == 0){
+
+                        }
+                        else{
+                            write_tabs(level);
+                            dprintf("offsetforbranch != 0, not making expression\n");
+                        }
                     }
                     else{
                         dprintf("dwarf_get_location_op_value_c: %s\n", dwarf_errmsg_by_number(dwarf_errno(d_error)));
