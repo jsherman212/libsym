@@ -30,7 +30,8 @@ int main(int argc, char **argv, const char **envp){
         CHOICE_DISPLAY_DIE_TREE_FROM_ROOT,
         CHOICE_CONVERT_LINE_NUMBER_TO_PC,
         CHOICE_GET_LINE_INFO_FROM_PC,
-        CHOICE_DISPLAY_DIE_MENU
+        CHOICE_DISPLAY_DIE_MENU,
+        CHOICE_QUIT
     };
 
     void *current_die = NULL;
@@ -57,7 +58,8 @@ int main(int argc, char **argv, const char **envp){
                     "4. Display this compile unit root DIE tree\n"
                     "5. Convert line number to a virtual address in this CU\n"
                     "6. Get line info from an arbitrary PC\n"
-                    "7. Display DIE menu\n");
+                    "7. Display DIE menu\n"
+                    "8. Quit\n");
             int choice = 0;
             scanf("%d", &choice);
 
@@ -123,7 +125,7 @@ int main(int argc, char **argv, const char **envp){
                         scanf("%lld", &lineno);
 
                         uint64_t pc =
-                            sym_lineno_to_pc_b(current_compile_unit, &lineno);
+                            sym_lineno_to_pc_b(dwarfinfo, current_compile_unit, &lineno);
 
                         void *comp_root_die =
                             sym_get_compilation_unit_root_die(current_compile_unit);
@@ -171,6 +173,11 @@ int main(int argc, char **argv, const char **envp){
                         display_compile_unit_menu = 0;
                         printf("\n");
                         break;
+                    }
+                case CHOICE_QUIT:
+                    {
+                        sym_end(&dwarfinfo);
+                        return 0;
                     }
                 default:
                     {
@@ -303,8 +310,6 @@ int main(int argc, char **argv, const char **envp){
             };
         }
     }
-
-    sym_end(&dwarfinfo);
 
     return 0;
 }

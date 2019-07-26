@@ -51,6 +51,7 @@ void **sym_get_function_die_parameters(
         void *      /* die */,
         int *       /* numparams */);
 
+
 /* Line related functions */
 /* Returns CU DIE which this line resides in */
 void *sym_get_line_info_from_pc(
@@ -68,6 +69,7 @@ uint64_t sym_lineno_to_pc_a(
 
 /* CU DIE given as first argument */
 uint64_t sym_lineno_to_pc_b(
+        void *      /* dwarfinfo ptr */,
         void *      /* compilation unit */,
         uint64_t *  /* return srcfilelineno */);
 

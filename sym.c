@@ -52,10 +52,46 @@ void sym_end(dwarfinfo_t **_dwarfinfo){
 
     dwarfinfo_t *dwarfinfo = *_dwarfinfo;
 
+    //dprintf("_dwarfinfo %p *_dwarfinfo %p dwarfinfo %p\n",
+      //      _dwarfinfo, *_dwarfinfo, dwarfinfo);
+
+    struct node_t *current = dwarfinfo->di_compunits->front;
+
+    while(current){
+        void *cu = current->data;
+        void *root_die = cu_get_root_die(cu);
+
+        current = current->next;
+
+        die_tree_free(dwarfinfo->di_dbg, root_die, 0);
+        linkedlist_delete(dwarfinfo->di_compunits, cu);
+        dprintf("cu %p root_die %p\n", cu, root_die);
+        cu_free(cu);
+    }
+    /*
+    LL_FOREACH(dwarfinfo->di_compunits, current){
+        void *cu = current->data;
+        void *root_die = cu_get_root_die(cu);
+
+        die_tree_free(dwarfinfo->di_dbg, root_die, 0);
+        linkedlist_delete(dwarfinfo->di_compunits, cu);
+        dprintf("cu %p\n", cu);
+        cu_free(cu);
+        //current = current->next;
+
+    }
+    */
     close(dwarfinfo->di_fd);
 
-    Dwarf_Error error;
-    dwarf_finish(dwarfinfo->di_dbg, &error);
+    Dwarf_Error d_error = NULL;
+    int ret = dwarf_finish(dwarfinfo->di_dbg, &d_error);
+
+    //if(ret == DW_DLV_ERROR)
+//        dwarf_dealloc(dwarfinfo->di_dbg, d_error, DW_DLA_ERROR);
+
+    linkedlist_free(dwarfinfo->di_compunits);
+    free(dwarfinfo);
+    //free(*_dwarfinfo);
 
     dprintf("here\n");
 }
@@ -122,7 +158,7 @@ void *sym_get_line_info_from_pc(dwarfinfo_t *dwarfinfo, uint64_t pc,
 
     void *root_die = cu_get_root_die(cu);
 
-    die_get_line_info_from_pc(root_die, pc,
+    die_get_line_info_from_pc(dwarfinfo->di_dbg, root_die, pc,
             outsrcfilename, outsrcfunction, outsrcfilelineno);
 
     return root_die;
@@ -135,9 +171,10 @@ uint64_t sym_lineno_to_pc_a(dwarfinfo_t *dwarfinfo,
     if(!cu)
         return 0;
 
-    return die_lineno_to_pc(cu_get_root_die(cu), srcfilelineno);
+    return die_lineno_to_pc(dwarfinfo->di_dbg, cu_get_root_die(cu), srcfilelineno);
 }
 
-uint64_t sym_lineno_to_pc_b(void *cu, uint64_t *srcfilelineno){
-    return die_lineno_to_pc(cu_get_root_die(cu), srcfilelineno);
+uint64_t sym_lineno_to_pc_b(dwarfinfo_t *dwarfinfo, void *cu,
+        uint64_t *srcfilelineno){
+    return die_lineno_to_pc(dwarfinfo->di_dbg, cu_get_root_die(cu), srcfilelineno);
 }
