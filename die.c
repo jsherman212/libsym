@@ -7,41 +7,9 @@
 
 #include "common.h"
 #include "compunit.h"
-
-#define BLACK "\033[30m"
-#define GREEN "\033[32m"
-#define RED "\033[31m"
-#define CYAN "\033[36m"
-#define MAGENTA "\033[35m"
-#define YELLOW "\033[33m"
-#define LIGHT_GREEN "\033[92m"
-#define LIGHT_MAGENTA "\033[95m"
-#define LIGHT_RED "\033[91m"
-#define LIGHT_YELLOW "\033[93m"
-#define LIGHT_BLUE "\033[94m" // XXX purple?
-#define RESET "\033[39m"
-
-#define YELLOW_BG "\033[43m"
-#define BLUE_BG "\033[44m"
-#define LIGHT_YELLOW_BG "\033[103m"
-#define LIGHT_RED_BG "\033[101m"
-#define LIGHT_GREEN_BG "\033[102m"
-#define RESET_BG "\033[49m"
+#include "dexpr.h"
 
 typedef struct die die_t;
-
-struct dwarf_locdesc {
-    uint64_t locdesc_lopc;
-    uint64_t locdesc_hipc;
-    int locdesc_bounded;
-    Dwarf_Small locdesc_op;
-    Dwarf_Unsigned locdesc_opd1;
-    Dwarf_Unsigned locdesc_opd2;
-    Dwarf_Unsigned locdesc_opd3;
-    Dwarf_Unsigned locdesc_offsetforbranch;
-
-    struct dwarf_locdesc *locdesc_next;
-};
 
 struct die {
     Dwarf_Die die_dwarfdie;
@@ -85,7 +53,7 @@ struct die {
      */
     Dwarf_Unsigned die_datatypedieoffset;
 
-    /* top level data type DIE */
+    /* Top level data type DIE */
     Dwarf_Die die_datatypedie;
     Dwarf_Half die_datatypedietag;
     Dwarf_Unsigned die_databytessize;
@@ -110,20 +78,18 @@ struct die {
     //Dwarf_Loc_Head_c die_loclisthead;
     Dwarf_Unsigned die_loclistcnt;
     /* Will have die_loclistcnt elements */
-    struct dwarf_locdesc **die_locdescs;
+    //struct dwarf_locdesc **die_locdescs;
+    //void **die_locdescs;
+    void **die_loclists;
 
     /* If this DIE's tag is DW_TAG_subprogram, this will be initialized */
-    struct dwarf_locdesc *die_framebaselocdesc;
+    //struct dwarf_locdesc *die_framebaselocdesc;
+    void *die_framebaselocdesc;
 
     int die_dwarfdieneedsfree;
 };
 
 void die_search(die_t *, void *, int, die_t **);
-
-static inline void write_tabs(int cnt){
-    for(int i=0; i<cnt; i++)
-        putchar('\t');
-}
 
 // XXX if this DIE represents a struct or union. is aggregate the right word?
 static int is_aggregate_type(Dwarf_Half tag){
@@ -734,7 +700,7 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
 
 static die_t *CUR_PARENTS[1000] = {0};
 
-static void describe_die_internal(die_t *, int);
+//static void describe_die_internal(die_t *, int);
 static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
         Dwarf_Half whichattr, int level){
     Dwarf_Attribute attr = NULL;
@@ -748,13 +714,13 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
     Dwarf_Error d_error = NULL;
 
     /*
-    Dwarf_Half form = 0;
-    dwarf_whatform(locexpr_attr, &form, &d_error);
-    const char *fname = NULL;
-    dwarf_get_FORM_name(form, &fname);
+       Dwarf_Half form = 0;
+       dwarf_whatform(locexpr_attr, &form, &d_error);
+       const char *fname = NULL;
+       dwarf_get_FORM_name(form, &fname);
 
-    dprintf("Form '%s'\n", fname);
-    */
+       dprintf("Form '%s'\n", fname);
+       */
 
     Dwarf_Loc_Head_c loclisthead = NULL;
     int lret = dwarf_get_loclist_c(attr, &loclisthead,//&((*die)->die_loclisthead),
@@ -765,7 +731,8 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
     if(lret == DW_DLV_OK){
         Dwarf_Unsigned lcount = (*die)->die_loclistcnt;
 
-        (*die)->die_locdescs = calloc(lcount, sizeof(struct dwarf_locdesc));
+        //(*die)->die_locdescs = calloc(lcount, sizeof(struct dwarf_locdesc));
+        initialize_die_loclists(&((*die)->die_loclists), lcount);
 
         for(Dwarf_Unsigned i=0; i<lcount; i++){
             Dwarf_Small loclist_source = 0, lle_value = 0;
@@ -785,7 +752,7 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
                     Dwarf_Small op = 0;
                     Dwarf_Unsigned opd1 = 0, opd2 = 0, opd3 = 0,
                                    offsetforbranch = 0;
-                    
+
                     /* d_error is still NULL */
 
                     int opret = dwarf_get_location_op_value_c(locentry,
@@ -794,18 +761,11 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
 
                     if(opret == DW_DLV_OK){
                         //write_tabs(level);
-        //                dprintf("[i: %lld j: %lld]: expr offset: %#llx loclist_source: %d lle_value: %d op: 0x%04x opd1: %lld opd2: %lld opd3: %lld offsetForBranch: %lld lopc: %#llx hipc: %#llx\n",
-          //                      i, j, section_offset, loclist_source, lle_value, op, opd1, opd2, opd3,
-            //                    offsetforbranch, lopc, hipc);
+                        //                dprintf("[i: %lld j: %lld]: expr offset: %#llx loclist_source: %d lle_value: %d op: 0x%04x opd1: %lld opd2: %lld opd3: %lld offsetForBranch: %lld lopc: %#llx hipc: %#llx\n",
+                        //                      i, j, section_offset, loclist_source, lle_value, op, opd1, opd2, opd3,
+                        //                    offsetforbranch, lopc, hipc);
 
-                        struct dwarf_locdesc *locdesc =
-                            calloc(1, sizeof(struct dwarf_locdesc));
-
-                        enum {
-                            LOCATION_EXPRESSION = 0,
-                            LOCATION_LIST_ENTRY,
-                            LOCATION_LIST_ENTRY_SPLIT
-                        };
+                        uint64_t cudie_lopc = 0, cudie_hipc = 0;
 
                         /* Low and high PC values here are based off the
                          * compilation unit's (or root DIE) low PC value when
@@ -820,55 +780,26 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
                                 abort();
                             }
 
+                            cudie_lopc = cudie->die_low_pc;
+                            cudie_hipc = cudie->die_high_pc;
                             //write_tabs(level);
                             //printf("Found CU DIE: '%s'\n", cudie->die_diename);
 
                             //lopc += cudie->die_low_pc;
                             //hipc += cudie->die_low_pc;
-
-                            locdesc->locdesc_lopc = lopc + cudie->die_low_pc;
-                            locdesc->locdesc_hipc = hipc + cudie->die_low_pc;
-
-                            locdesc->locdesc_bounded = 1;
                         }
 
-                        locdesc->locdesc_op = op;
-                        locdesc->locdesc_opd1 = opd1;
-                        locdesc->locdesc_opd2 = opd2;
-                        locdesc->locdesc_opd3 = opd3;
-                        locdesc->locdesc_offsetforbranch = offsetforbranch;
+                        uint64_t locdesc_lopc = lopc + cudie_lopc;
+                        uint64_t locdesc_hipc = hipc + cudie_lopc;
+
+                        void *locdesc = create_location_description(loclist_source, locdesc_lopc, locdesc_hipc, op, opd1, opd2, opd3, offsetforbranch);
 
                         if(j > 0){
-                            struct dwarf_locdesc *current = NULL;
-
-                            if(whichattr == DW_AT_location)
-                                current = (*die)->die_locdescs[i];
-                            else{
-                                dprintf("j>0: called with whichattr %#x\n", whichattr);
-                                // XXX
-                                abort();
-                            }
-
-                            while(current->locdesc_next)
-                                current = current->locdesc_next;
-
-                            current->locdesc_next = locdesc;
-
-                            /*
-                            struct dwarf_locdesc *ld = (*die)->die_locdescs[i];
-
-                            while(ld){
-                                int bkpthere = 0;
-
-                                ld = ld->locdesc_next;
-                            }
-
-                            exit(0);
-                            */
+                            add_additional_location_description(whichattr, (*die)->die_loclists, locdesc, i);
                         }
                         else{
                             if(whichattr == DW_AT_location)
-                                (*die)->die_locdescs[i] = locdesc;
+                                (*die)->die_loclists[i] = locdesc;
                             else if(whichattr == DW_AT_frame_base)
                                 (*die)->die_framebaselocdesc = locdesc;
                             else{
@@ -876,7 +807,6 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
                                 // XXX
                                 abort();
                             }
-                            //dprintf("(*die)->die_locdescs[i] %p\n", (*die)->die_locdescs[i]);
                         }
                     }
                     else{
@@ -903,18 +833,18 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
      * frame base location description.
      */
     if((*die)->die_tag != DW_TAG_subprogram && level > 0){
-   //     dprintf("level %d\n", level);
+        //     dprintf("level %d\n", level);
 
         int pos = level;
         die_t *curparent = CUR_PARENTS[pos];
 
         while(pos >= 0 &&
                 (!curparent || curparent->die_tag != DW_TAG_subprogram)){
-//            describe_die_internal(curparent, level);
+            //            describe_die_internal(curparent, level);
             curparent = CUR_PARENTS[pos--];
         }
 
-  //      describe_die_internal(curparent, level);
+        //      describe_die_internal(curparent, level);
         if(curparent->die_tag == DW_TAG_subprogram)
             (*die)->die_framebaselocdesc = curparent->die_framebaselocdesc;
 
@@ -1038,23 +968,23 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
     copy_location_lists(dbg, die, DW_AT_location, level);
     copy_location_lists(dbg, die, DW_AT_frame_base, level);
     /*
-    Dwarf_Attribute locexpr_attr = NULL;
-    get_die_attribute(dbg, (*die)->die_dwarfdie, DW_AT_location,
-            &locexpr_attr);
+       Dwarf_Attribute locexpr_attr = NULL;
+       get_die_attribute(dbg, (*die)->die_dwarfdie, DW_AT_location,
+       &locexpr_attr);
 
-    if(locexpr_attr){
-        ret = dwarf_formexprloc(locexpr_attr, &((*die)->die_locexprlen),
-                &((*die)->die_locexpr), &d_error);
+       if(locexpr_attr){
+       ret = dwarf_formexprloc(locexpr_attr, &((*die)->die_locexprlen),
+       &((*die)->die_locexpr), &d_error);
 
-        if(ret == DW_DLV_ERROR){
-            printf("%s\n", dwarf_errmsg_by_number(dwarf_errno(d_error)));
-            exit(0);
-            dwarf_dealloc(dbg, d_error, DW_DLA_ERROR);
-        }
-    }
+       if(ret == DW_DLV_ERROR){
+       printf("%s\n", dwarf_errmsg_by_number(dwarf_errno(d_error)));
+       exit(0);
+       dwarf_dealloc(dbg, d_error, DW_DLA_ERROR);
+       }
+       }
 
-    dwarf_dealloc(dbg, locexpr_attr, DW_DLA_ATTR);
-    */
+       dwarf_dealloc(dbg, locexpr_attr, DW_DLA_ATTR);
+       */
 
     return 0;
 }
@@ -1064,61 +994,6 @@ static Dwarf_Half die_has_children(Dwarf_Die die){
     dwarf_die_abbrev_children_flag(die, &result);
 
     return result;
-}
-
-static inline void write_spaces(int count){
-    for(int i=0; i<count; i++)
-        putchar(' ');
-}
-
-static void describe_die_locdesc_internal(struct dwarf_locdesc *locdesc,
-        int is_fb, int idx, int idx2, int level, int *byteswritten){
-    write_tabs(level);
-    write_spaces(level+4);
-
-    int add = 0;
-
-    if(is_fb){
-        printf(RED"|"RESET" DW_AT_frame_base:%n", &add);
-        *byteswritten += (add - strlen(RED) - strlen(RESET));
-    }
-    else{
-        printf(RED"|"RESET" locdesc ["GREEN"%d"RESET"]["RED"%d"RESET"]:%n", idx, idx2, &add);
-        *byteswritten += (add - strlen(RED) - strlen(RESET) - strlen(GREEN) - strlen(RESET) -
-                    strlen(RED) - strlen(RESET));
-    }
-
-    printf(" bounded: "YELLOW"%d"RESET"%n", locdesc->locdesc_bounded, &add);
-    *byteswritten += (add - strlen(YELLOW) - strlen(RESET));
-
-    if(locdesc->locdesc_bounded){
-        printf(" lopc = "LIGHT_BLUE"%#llx"RESET", hipc = "LIGHT_YELLOW"%#llx"RESET"%n",
-                locdesc->locdesc_lopc, locdesc->locdesc_hipc, &add);
-        *byteswritten += (add - strlen(LIGHT_BLUE) - strlen(RESET) - strlen(LIGHT_YELLOW) - strlen(RESET));
-    }
-
-    printf(", op = "CYAN"0x%04x"RESET"%n", locdesc->locdesc_op, &add);
-    *byteswritten += (add - strlen(CYAN) - strlen(RESET));
-
-    printf(", opd1 = "LIGHT_YELLOW_BG""BLACK"%s0x%llx"RESET""RESET_BG"%n",
-            (long)locdesc->locdesc_opd1<0?"-":"",
-            (long)locdesc->locdesc_opd1<0?(long)-locdesc->locdesc_opd1:locdesc->locdesc_opd1, &add);
-    *byteswritten += (add - strlen(LIGHT_YELLOW_BG) - strlen(BLACK) - strlen(RESET) - strlen(RESET_BG));
-
-    printf(", opd2 = "LIGHT_YELLOW_BG""BLACK"%s0x%llx"RESET""RESET_BG"%n",
-            (long)locdesc->locdesc_opd2<0?"-":"",
-            (long)locdesc->locdesc_opd2<0?(long)-locdesc->locdesc_opd2:locdesc->locdesc_opd2, &add);
-    *byteswritten += (add - strlen(LIGHT_YELLOW_BG) - strlen(BLACK) - strlen(RESET) - strlen(RESET_BG));
-
-    printf(", opd3 = "LIGHT_YELLOW_BG""BLACK"%s0x%llx"RESET""RESET_BG"%n",
-            (long)locdesc->locdesc_opd3<0?"-":"",
-            (long)locdesc->locdesc_opd3<0?(long)-locdesc->locdesc_opd3:locdesc->locdesc_opd3, &add);
-    *byteswritten += (add - strlen(LIGHT_YELLOW_BG) - strlen(BLACK) - strlen(RESET) - strlen(RESET_BG));
-
-    printf(", offsetforbranch = "LIGHT_GREEN_BG""BLACK"%s0x%llx"RESET""RESET_BG"%n",
-            (long)locdesc->locdesc_offsetforbranch<0?"-":"",
-            (long)locdesc->locdesc_offsetforbranch<0?(long)-locdesc->locdesc_offsetforbranch:locdesc->locdesc_offsetforbranch, &add);
-    *byteswritten += (add - strlen(LIGHT_YELLOW_BG) - strlen(BLACK) - strlen(RESET) - strlen(RESET_BG));
 }
 
 static void describe_die_internal(die_t *die, int level){
@@ -1162,10 +1037,10 @@ static void describe_die_internal(die_t *die, int level){
         printf(", srclinescnt = "MAGENTA"%lld"RESET"", die->die_srclinescnt);
     }
 
-   if(die->die_loclistcnt > 0){ 
+    if(die->die_loclistcnt > 0){ 
         printf(", loclistcnt = %s%#llx%s",
                 BLUE_BG, die->die_loclistcnt, RESET_BG);
-   }
+    }
 
     if(die->die_inlinedsub)
         printf(", abstract origin %s%#llx%s", MAGENTA, die->die_aboriginoff, RESET);
@@ -1186,35 +1061,84 @@ static void describe_die_internal(die_t *die, int level){
     int putseparator = 0;
     int maxbyteswritten = 0;
 
+    // XXX for testing read_buffer location lists
+    uint64_t pc = 0x1000191d4;
+
     if(die->die_loclistcnt > 0){
         putseparator = 1;
 
         for(Dwarf_Unsigned i=0; i<die->die_loclistcnt; i++){
-            struct dwarf_locdesc *current = die->die_locdescs[i];
+            //struct dwarf_locdesc *current = die->die_loclists[i];
+            void *current = die->die_loclists[i];
 
             int idx2 = 0;
             while(current){
                 int byteswritten = 0;
-                describe_die_locdesc_internal(current, 0, i, idx2, level, &byteswritten);
+                describe_location_description(current, 0, i, idx2, level, &byteswritten);
 
                 if(byteswritten > maxbyteswritten)
                     maxbyteswritten = byteswritten;
 
                 putchar('\n');
                 idx2++;
-                current = current->locdesc_next;
+                //current = current->locdesc_next;
+                current = get_next_location_description(current);
+            }
+
+            current = die->die_loclists[i];
+
+            if(current){
+                write_tabs(level);
+                write_spaces(level+4);
+                printf(RED"| "RESET);
+
+                write_spaces(4);
+                printf(GREEN"|"RESET"\n");
+
+                write_tabs(level);
+                write_spaces(level+4);
+                printf(RED"| "RESET);
+                write_spaces(4);
+
+                printf(GREEN"---"RESET);
+
+                char *loc_desc_decoded =
+                    decode_location_description(die->die_framebaselocdesc, current, pc);
+                printf(" Decoded: '%s'\n", loc_desc_decoded);
+                free(loc_desc_decoded);
             }
         }
     }
 
     if(die->die_framebaselocdesc){
         int byteswritten = 0;
-        describe_die_locdesc_internal(die->die_framebaselocdesc, 1, 0, 0, level, &byteswritten);
+        describe_location_description(die->die_framebaselocdesc, 1, 0, 0, level, &byteswritten);
         if(byteswritten > maxbyteswritten)
             maxbyteswritten = byteswritten;
 
-        putseparator = 1;
         putchar('\n');
+
+        write_tabs(level);
+        write_spaces(level+4);
+        printf(RED"| "RESET);
+
+        write_spaces(4);
+        printf(GREEN"|"RESET"\n");
+
+        write_tabs(level);
+        write_spaces(level+4);
+        printf(RED"| "RESET);
+        write_spaces(4);
+
+        printf(GREEN"---"RESET);
+
+        char *loc_desc_decoded =
+            decode_location_description(die->die_framebaselocdesc, die->die_framebaselocdesc, pc);
+        printf(" Decoded: '%s'\n", loc_desc_decoded);
+        free(loc_desc_decoded);
+
+        putseparator = 1;
+        //putchar('\n');
     }
 
     if(putseparator){
@@ -1309,8 +1233,8 @@ static void add_die_to_tree(die_t *current, int level){
         }
     }
 
-   // write_tabs(level);
-   // describe_die_internal(current, level);
+    // write_tabs(level);
+    // describe_die_internal(current, level);
 }
 
 static void die_free(Dwarf_Debug dbg, die_t *die, int ending){
