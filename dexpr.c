@@ -418,6 +418,29 @@ void *create_location_description(Dwarf_Small loclist_source,
     return locdesc;
 }
 
+// XXX returns the register DW_AT_frame_base represents
+static char *evaluate_frame_base(struct dwarf_locdesc *framebaselocdesc){
+    Dwarf_Small op = framebaselocdesc->locdesc_op;
+
+    char result[8] = {0};
+
+    switch(op){
+        case DW_OP_reg0...DW_OP_reg31:
+            {
+                return get_register_name(op - DW_OP_reg0);
+            }
+        case DW_OP_regx:
+            {
+                Dwarf_Unsigned opd1 = framebaselocdesc->locdesc_opd1;
+                char *regname = get_register_name(opd1);
+                return regname;
+            }
+        default:
+            return NULL;
+    };
+
+}
+
 // XXX with the help of my expression evaluator, this will evaluate DWARF
 // location descriptions
 // XXX TODO when added inside iosdbg, this will not create a string for my expression
@@ -643,9 +666,15 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                     // The DWARF standard says this and DW_OP_regx represent
                     // a "register location", which isn't the same as the value
                     // inside the register... so I guess that means the register name?
+                    //
+                    // LLDB reads the value of the register and pushes that
+                    // onto the stack. so I guess I'll do that
                     char *regname = get_register_name(op - DW_OP_reg0);
                     snprintf(operatorbuf, sizeof(operatorbuf), "%s", regname);
                     free(regname);
+
+                    // XXX call eval_expr on this string, then push result 
+                    // onto the stack
 
                     break;
                 }
@@ -665,10 +694,13 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                 }
             case DW_OP_regx:
                 {
-                    // XXX will have to encounter this to implement it correctly
                     char *regname = get_register_name(opd1);
                     snprintf(operatorbuf, sizeof(operatorbuf), "%s", regname);
                     free(regname);
+
+                    // XXX call eval_expr on this string, then push result 
+                    // onto the stack
+
 
                     break;
                 }
@@ -678,7 +710,8 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
 
                     /* Fetch what fbreg actually is. */
                     char *fbregexpr =
-                        decode_location_description(framebaselocdesc, framebaselocdesc, pc);
+                        evaluate_frame_base(framebaselocdesc);
+                        //decode_location_description(framebaselocdesc, framebaselocdesc, pc);
 
                     snprintf(operatorbuf, sizeof(operatorbuf), "%s", fbregexpr);
 
