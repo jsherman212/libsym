@@ -9,7 +9,6 @@
 #include "compunit.h"
 #include "die.h"
 #include "linkedlist.h"
-#include "stack.h"
 
 #include <libdwarf.h>
 

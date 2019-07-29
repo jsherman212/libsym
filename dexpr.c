@@ -379,7 +379,6 @@ static char *get_register_name(Dwarf_Half op){
     return strdup(regstr);
 }
 
-
 void add_additional_location_description(Dwarf_Half whichattr,
         struct dwarf_locdesc **locs, struct dwarf_locdesc *add,
         int idx){
@@ -398,13 +397,12 @@ void add_additional_location_description(Dwarf_Half whichattr,
     add->locdesc_prev = current;
 }
 
-void *create_location_description(Dwarf_Small loclist_source,
-        uint64_t locdesc_lopc, uint64_t locdesc_hipc,
+static struct dwarf_locdesc *create_new_locdesc(int bounded, uint64_t locdesc_lopc, uint64_t locdesc_hipc,
         Dwarf_Small op, Dwarf_Unsigned opd1,
         Dwarf_Unsigned opd2, Dwarf_Unsigned opd3, Dwarf_Unsigned offsetforbranch){
     struct dwarf_locdesc *locdesc = calloc(1, sizeof(struct dwarf_locdesc));
 
-    if(loclist_source == LOCATION_LIST_ENTRY){
+    if(bounded){
         locdesc->locdesc_bounded = 1;
 
         locdesc->locdesc_lopc = locdesc_lopc;
@@ -418,6 +416,49 @@ void *create_location_description(Dwarf_Small loclist_source,
     locdesc->locdesc_offsetforbranch = offsetforbranch;
 
     return locdesc;
+}
+
+struct dwarf_locdesc *copy_locdesc(struct dwarf_locdesc *based_on){
+    if(!based_on)
+        return NULL;
+
+    struct dwarf_locdesc *root = create_new_locdesc(based_on->locdesc_bounded,
+            based_on->locdesc_lopc, based_on->locdesc_hipc, based_on->locdesc_op,
+            based_on->locdesc_opd1, based_on->locdesc_opd2, based_on->locdesc_opd3,
+            based_on->locdesc_offsetforbranch);
+
+    struct dwarf_locdesc *paramcurrent = based_on->locdesc_next;
+    struct dwarf_locdesc *rootcurrent = root;
+
+    while(paramcurrent){
+        struct dwarf_locdesc *copied =
+            create_new_locdesc(paramcurrent->locdesc_bounded,
+                paramcurrent->locdesc_lopc, paramcurrent->locdesc_hipc,
+                paramcurrent->locdesc_op, paramcurrent->locdesc_opd1,
+                paramcurrent->locdesc_opd2, paramcurrent->locdesc_opd3,
+                paramcurrent->locdesc_offsetforbranch);
+        
+        rootcurrent->locdesc_next = copied;
+        copied->locdesc_prev = rootcurrent;
+
+        rootcurrent = rootcurrent->locdesc_next;
+        paramcurrent = paramcurrent->locdesc_next;
+    }
+
+    return root;
+}
+
+void *create_location_description(Dwarf_Small loclist_source,
+        uint64_t locdesc_lopc, uint64_t locdesc_hipc,
+        Dwarf_Small op, Dwarf_Unsigned opd1,
+        Dwarf_Unsigned opd2, Dwarf_Unsigned opd3, Dwarf_Unsigned offsetforbranch){
+    int bounded = 0;
+
+    if(loclist_source == LOCATION_LIST_ENTRY)
+        bounded = 1;
+    
+    return create_new_locdesc(bounded, locdesc_lopc, locdesc_hipc,
+            op, opd1, opd2, opd3, offsetforbranch);
 }
 
 // XXX returns the register DW_AT_frame_base represents
@@ -1064,4 +1105,17 @@ void *get_next_location_description(struct dwarf_locdesc *ld){
 void initialize_die_loclists(struct dwarf_locdesc ***locdescs,
         Dwarf_Unsigned lcount){
     *locdescs = calloc(lcount, sizeof(struct dwarf_locdesc));
+}
+
+void loc_free(struct dwarf_locdesc *locdesc){
+   // putchar(' ');
+    struct dwarf_locdesc *current = locdesc;
+    int cnt = 0;
+
+    while(current){
+        struct dwarf_locdesc *f = current;
+     //  printf("%d: freeing %p\n", cnt++, current);
+        current = current->locdesc_next;
+        free(f);
+    }
 }
