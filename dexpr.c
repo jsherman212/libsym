@@ -16,6 +16,7 @@ struct dwarf_locdesc {
     Dwarf_Unsigned locdesc_opd3;
     Dwarf_Unsigned locdesc_offsetforbranch;
 
+    struct dwarf_locdesc *locdesc_prev;
     struct dwarf_locdesc *locdesc_next;
 };
 
@@ -394,6 +395,7 @@ void add_additional_location_description(Dwarf_Half whichattr,
         current = current->locdesc_next;
 
     current->locdesc_next = add;
+    add->locdesc_prev = current;
 }
 
 void *create_location_description(Dwarf_Small loclist_source,
@@ -422,23 +424,14 @@ void *create_location_description(Dwarf_Small loclist_source,
 static char *evaluate_frame_base(struct dwarf_locdesc *framebaselocdesc){
     Dwarf_Small op = framebaselocdesc->locdesc_op;
 
-    char result[8] = {0};
-
     switch(op){
         case DW_OP_reg0...DW_OP_reg31:
-            {
-                return get_register_name(op - DW_OP_reg0);
-            }
+            return get_register_name(op - DW_OP_reg0);
         case DW_OP_regx:
-            {
-                Dwarf_Unsigned opd1 = framebaselocdesc->locdesc_opd1;
-                char *regname = get_register_name(opd1);
-                return regname;
-            }
+            return get_register_name(framebaselocdesc->locdesc_opd1);
         default:
             return NULL;
     };
-
 }
 
 // XXX with the help of my expression evaluator, this will evaluate DWARF
@@ -454,8 +447,8 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
         return strdup("error: PC out of bounds");
 
     char exprstr[1024] = {0};
-    uintptr_t stack[128] = {0};
-    unsigned int stackptr = 0;
+    intptr_t stack[512] = {0};
+    unsigned int sp = 0;
 
     struct dwarf_locdesc *ld = locdesc;
 
@@ -482,7 +475,7 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                     snprintf(operandbuf, sizeof(operandbuf), "%#llx", opd1);
 
                     // XXX push this value onto the stack
-                    stack[++stackptr] = opd1;
+                    stack[++sp] = opd1;
 
                     break;
                 }
@@ -494,69 +487,123 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                     // and then push that value onto the stack
 
                     break;
-                }
+                } 
             case DW_OP_const1u:
                 {
+                    snprintf(operandbuf, sizeof(operandbuf), "%d", (uint8_t)opd1);
+                    stack[++sp] = (uint8_t)opd1;
                     break;
                 }
             case DW_OP_const1s:
                 {
+                    snprintf(operandbuf, sizeof(operandbuf), "%d", (int8_t)opd1);
+                    stack[++sp] = (int8_t)opd1;
                     break;
                 }
             case DW_OP_const2u:
                 {
+                    snprintf(operandbuf, sizeof(operandbuf), "%d", (uint16_t)opd1);
+                    stack[++sp] = (uint16_t)opd1;
                     break;
                 }
             case DW_OP_const2s:
                 {
+                    snprintf(operandbuf, sizeof(operandbuf), "%d", (int16_t)opd1);
+                    stack[++sp] = (int16_t)opd1;
                     break;
                 }
             case DW_OP_const4u:
                 {
+                    snprintf(operandbuf, sizeof(operandbuf), "%d", (uint32_t)opd1);
+                    stack[++sp] = (uint32_t)opd1;
                     break;
                 }
             case DW_OP_const4s:
                 {
+                    snprintf(operandbuf, sizeof(operandbuf), "%d", (int32_t)opd1);
+                    stack[++sp] = (int32_t)opd1;
                     break;
                 }
             case DW_OP_const8u:
                 {
+                    snprintf(operandbuf, sizeof(operandbuf), "%lld", (uint64_t)opd1);
+                    stack[++sp] = (uint64_t)opd1;
                     break;
                 }
             case DW_OP_const8s:
                 {
+                    snprintf(operandbuf, sizeof(operandbuf), "%lld", (int64_t)opd1);
+                    stack[++sp] = (int64_t)opd1;
                     break;
                 }
             case DW_OP_constu:
                 {
+                    /* TODO: figure out if the operands are still encoded after
+                     * calling dwarf_get_location_op_value_c. Because
+                     * DW_OP_fbreg's documentation says its first operand is
+                     * a signed LEB128 offset from a register, but after
+                     * testing, it turns out to be a normal number
+                     */
+                    snprintf(operandbuf, sizeof(operandbuf), "%lld", (uint64_t)opd1);
+                    stack[++sp] = (uint64_t)opd1;
+
                     break;
                 }
             case DW_OP_consts:
                 {
+                    snprintf(operandbuf, sizeof(operandbuf), "%lld", (int64_t)opd1);
+                    stack[++sp] = (int64_t)opd1;
                     break;
                 }
             case DW_OP_dup:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+                    stack[sp + 1] = stack[sp];
+                    sp++;
                     break;
                 }
             case DW_OP_drop:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+                    sp--;
                     break;
                 }
             case DW_OP_over:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+                    stack[sp + 1] = stack[sp - 1];
+                    sp++;
                     break;
                 }
             case DW_OP_pick:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+                    snprintf(operandbuf, sizeof(operandbuf), "%d", (uint8_t)opd1);
+
+                    stack[sp + 1] = stack[sp - (uint8_t)opd1];
+                    sp++;
+
                     break;
                 }
             case DW_OP_swap:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    intptr_t t = stack[sp];
+                    stack[sp] = stack[sp - 1];
+                    stack[sp - 1] = t;
+
                     break;
                 }
             case DW_OP_rot:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    intptr_t t = stack[sp];
+                    stack[sp] = stack[sp - 1];
+                    stack[sp - 1] = stack[sp - 2];
+                    stack[sp - 2] = t;
+
                     break;
                 }
             case DW_OP_xderef:
@@ -565,110 +612,238 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                 }
             case DW_OP_abs:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp] = llabs(stack[sp]);
+
                     break;
                 }
             case DW_OP_and:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] &= stack[sp];
+                    sp--;
+
                     break;
                 }
             case DW_OP_div:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] /= stack[sp];
+                    sp--;
+
                     break;
                 }
             case DW_OP_minus:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] -= stack[sp];
+                    sp--;
+
                     break;
                 }
             case DW_OP_mod:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] %= stack[sp];
+                    sp--;
+
                     break;
                 }
             case DW_OP_mul:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] *= stack[sp];
+                    sp--;
+
                     break;
                 }
             case DW_OP_neg:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp] = -stack[sp];
+
                     break;
                 }
             case DW_OP_not:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp] = ~stack[sp];
+
                     break;
                 }
             case DW_OP_or:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] |= stack[sp];
+                    sp--;
+
                     break;
                 }
             case DW_OP_plus:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] += stack[sp];
+                    sp--;
+
                     break;
                 }
             case DW_OP_plus_uconst:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+                    snprintf(operandbuf, sizeof(operandbuf), " %ld", (intptr_t)opd1);
+
+                    stack[sp] += (intptr_t)opd1;
+
                     break;
                 }
             case DW_OP_shl:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] <<= stack[sp];
+                    sp--;
+
                     break;
                 }
             case DW_OP_shr:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] >>= stack[sp];
+                    sp--;
+
                     break;
                 }
             case DW_OP_shra:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] /= (1 << stack[sp]);
+                    sp--;
+
                     break;
                 }
             case DW_OP_xor:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] ^= stack[sp];
+                    sp--;
+
                     break;
                 }
             case DW_OP_bra:
                 {
-                    break;
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    int16_t skip = (int16_t)opd1;
+                    snprintf(operandbuf, sizeof(operandbuf), " %d", skip);
+
+                    intptr_t val = stack[sp];
+
+                    if(!val)
+                        break;
+
+                    if(skip < 0){
+                        while(++skip)
+                            ld = ld->locdesc_prev;
+                    }
+                    else{
+                        for(int16_t i=0; i<skip; i++)
+                            ld = ld->locdesc_next;
+                    }
+
+                    continue;
                 }
             case DW_OP_eq:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] = (stack[sp - 1] == stack[sp]);
+                    sp--;
+
                     break;
                 }
             case DW_OP_ge:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] = (stack[sp - 1] >= stack[sp]);
+                    sp--;
+
                     break;
                 }
             case DW_OP_gt:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] = (stack[sp - 1] > stack[sp]);
+                    sp--;
+
                     break;
                 }
             case DW_OP_le:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] = (stack[sp - 1] <= stack[sp]);
+                    sp--;
+
                     break;
                 }
             case DW_OP_lt:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] = (stack[sp - 1] < stack[sp]);
+                    sp--;
+
                     break;
                 }
             case DW_OP_ne:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    stack[sp - 1] = (stack[sp - 1] != stack[sp]);
+                    sp--;
+
                     break;
                 }
             case DW_OP_skip:
                 {
-                    break;
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+
+                    int16_t skip = (int16_t)opd1;
+                    snprintf(operandbuf, sizeof(operandbuf), " %d", skip);
+
+                    if(skip < 0){
+                        while(++skip)
+                            ld = ld->locdesc_prev;
+                    }
+                    else{
+                        for(int16_t i=0; i<skip; i++)
+                            ld = ld->locdesc_next;
+                    }
+
+                    continue;
                 }
             case DW_OP_lit0...DW_OP_lit31:
                 {
-                    stack[++stackptr] = op - DW_OP_lit0;
+                    stack[++sp] = op - DW_OP_lit0;
                     break;
                 }
             case DW_OP_reg0...DW_OP_reg31:
                 {
-                    // XXX will have to encounter this to implement it correctly.
-                    // The DWARF standard says this and DW_OP_regx represent
-                    // a "register location", which isn't the same as the value
-                    // inside the register... so I guess that means the register name?
-                    //
-                    // LLDB reads the value of the register and pushes that
-                    // onto the stack. so I guess I'll do that
                     char *regname = get_register_name(op - DW_OP_reg0);
                     snprintf(operatorbuf, sizeof(operatorbuf), "%s", regname);
                     free(regname);
@@ -687,8 +862,7 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                     snprintf(operandbuf, sizeof(operandbuf), "%+lld", (Dwarf_Signed)opd1);
 
                     // XXX concat these two strings, call eval_expr,
-                    // read memory at the resulting location, and
-                    // then push that value onto the stack
+                    // and then push that value onto the stack
 
                     break;
                 }
@@ -709,8 +883,7 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                     memset(operatorbuf, 0, sizeof(operatorbuf));
 
                     /* Fetch what fbreg actually is. */
-                    char *fbregexpr =
-                        evaluate_frame_base(framebaselocdesc);
+                    char *fbregexpr = evaluate_frame_base(framebaselocdesc);
                         //decode_location_description(framebaselocdesc, framebaselocdesc, pc);
 
                     snprintf(operatorbuf, sizeof(operatorbuf), "%s", fbregexpr);
@@ -743,14 +916,24 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                 }
             case DW_OP_piece:
                 {
+                    printf("DW_OP_piece not implemented\n");
                     break;
                 }
             case DW_OP_deref_size:
                 {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+                    uint8_t deref_size = (uint8_t)opd1;
+
+                    snprintf(operandbuf, sizeof(operandbuf), " %d", deref_size);
+                    // XXX pop top of stack, read memory at that location
+                    // and then cast the result specified by deref_size
+                    // and push that value onto the stack
+
                     break;
                 }
             case DW_OP_xderef_size:
                 {
+                    printf("DW_OP_xderef_size not implemented\n");
                     break;
                 }
             case DW_OP_nop:
@@ -764,18 +947,22 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                 }
             case DW_OP_call2:
                 {
+                    printf("DW_OP_call2 not implemented\n");
                     break;
                 }
             case DW_OP_call4:
                 {
+                    printf("DW_OP_call4 not implemented\n");
                     break;
                 }
             case DW_OP_call_ref:
                 {
+                    printf("DW_OP_call_ref not implemented\n");
                     break;
                 }
             case DW_OP_form_tls_address:
                 {
+                    printf("DW_OP_form_tls_address not implemented\n");
                     break;
                 }
             case DW_OP_call_frame_cfa:
@@ -792,46 +979,8 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                 }
             case DW_OP_stack_value:
                 {
-                    break;
-                }
-            case DW_OP_implicit_pointer:
-                {
-                    break;
-                }
-            case DW_OP_addrx:
-                {
-                    break;
-                }
-            case DW_OP_constx:
-                {
-                    break;
-                }
-            case DW_OP_entry_value:
-                {
-                    break;
-                }
-            case DW_OP_const_type:
-                {
-                    break;
-                }
-            case DW_OP_regval_type:
-                {
-                    break;
-                }
-            case DW_OP_deref_type:
-                {
-                    break;
-                }
-            case DW_OP_xderef_type:
-                {
-                    break;
-                }
-            case DW_OP_convert:
-                {
-                    break;
-                }
-            case DW_OP_reinterpret:
-                {
+                    snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
+                    goto done;
                     break;
                 }
             default:
@@ -843,7 +992,10 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
         strcat(exprstr, operandbuf);
         //strcat(exprstr, " ");
 
+moveon:
         ld = ld->locdesc_next;
+done:
+        break;
     }
 
     return strdup(exprstr);
