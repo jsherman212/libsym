@@ -447,6 +447,8 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
         return strdup("error: PC out of bounds");
 
     char exprstr[1024] = {0};
+
+    /* 512 to support extreme operands of DW_OP_pick */
     intptr_t stack[512] = {0};
     unsigned int sp = 0;
 
@@ -459,12 +461,6 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                        opd3 = ld->locdesc_opd3;
         //dprintf("op '%s'\n", get_op_name(ld->locdesc_op));
 
-        /*
-        char opbuf[64] = {0};
-        size_t opbuf_len_before_append = strlen(opbuf);
-        snprintf(opbuf, sizeof(opbuf), " %s ", get_op_name(ld->locdesc_op));
-        strcat(exprstr, opbuf);
-        */
         char operatorbuf[64] = {0};
         char operandbuf[64] = {0};
 
@@ -474,7 +470,6 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                     //snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
                     snprintf(operandbuf, sizeof(operandbuf), "%#llx", opd1);
 
-                    // XXX push this value onto the stack
                     stack[++sp] = opd1;
 
                     break;
@@ -485,6 +480,7 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
 
                     // XXX pop top of stack, read memory at that location,
                     // and then push that value onto the stack
+                    intptr_t addr = stack[sp];
 
                     break;
                 } 
@@ -943,6 +939,7 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                 }
             case DW_OP_push_object_address:
                 {
+                    printf("DW_OP_push_object_address not implemented\n");
                     break;
                 }
             case DW_OP_call2:
@@ -967,14 +964,17 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                 }
             case DW_OP_call_frame_cfa:
                 {
+                    printf("DW_OP_call_frame_cfa not implemented\n");
                     break;
                 }
             case DW_OP_bit_piece:
                 {
+                    printf("DW_OP_bit_piece not implemented\n");
                     break;
                 }
             case DW_OP_implicit_value:
                 {
+                    printf("DW_OP_implicit_value not implemented\n");
                     break;
                 }
             case DW_OP_stack_value:
@@ -992,11 +992,11 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
         strcat(exprstr, operandbuf);
         //strcat(exprstr, " ");
 
-moveon:
-        ld = ld->locdesc_next;
 done:
         break;
     }
+
+    //dprintf("Top stack value: %ld", stack[sp]);
 
     return strdup(exprstr);
 }
