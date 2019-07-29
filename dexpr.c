@@ -443,9 +443,10 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
     if(!locdesc)
         return strdup("error: NULL locdesc");
 
+    /*
     if(!is_locdesc_in_bounds(locdesc, pc))
         return strdup("error: PC out of bounds");
-
+    */
     char exprstr[1024] = {0};
 
     /* 512 to support extreme operands of DW_OP_pick */
@@ -981,10 +982,10 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                 {
                     snprintf(operatorbuf, sizeof(operatorbuf), "%s", get_op_name(ld->locdesc_op));
                     goto done;
-                    break;
                 }
             default:
                 dprintf("Unhandled op %#x\n", op);
+                // XXX
                 abort();
         };
 
@@ -992,6 +993,8 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
         strcat(exprstr, operandbuf);
         //strcat(exprstr, " ");
 
+        ld = ld->locdesc_next;
+        continue;
 done:
         break;
     }

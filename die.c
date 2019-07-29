@@ -59,6 +59,11 @@ struct die {
     Dwarf_Unsigned die_databytessize;
     char *die_datatypename;
 
+    /* If this DIE represents a structure or a union, the following is
+     * initialized.
+     */
+    die_t *die_structoruniontypedie;
+
     /* If this DIE represents an inlined subroutine, the following
      * two are initialized.
      */
@@ -75,15 +80,11 @@ struct die {
     /* If this DIE has the attribute DW_AT_location, the following
      * three are initialized.
      */
-    //Dwarf_Loc_Head_c die_loclisthead;
     Dwarf_Unsigned die_loclistcnt;
     /* Will have die_loclistcnt elements */
-    //struct dwarf_locdesc **die_locdescs;
-    //void **die_locdescs;
     void **die_loclists;
 
     /* If this DIE's tag is DW_TAG_subprogram, this will be initialized */
-    //struct dwarf_locdesc *die_framebaselocdesc;
     void *die_framebaselocdesc;
 
     int die_dwarfdieneedsfree;
@@ -314,7 +315,8 @@ static int lex_block_count = 0, anon_struct_count = 0, anon_union_count = 0,
            anon_enum_count = 0, IS_POINTER = 0;
 
 static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
-        Dwarf_Die die, char *outtype, Dwarf_Unsigned *outsize, int maxlen, int level){
+        Dwarf_Die die, char *outtype, Dwarf_Unsigned *outsize, Dwarf_Half *base_tag,
+        Dwarf_Die *base_die, int maxlen, int level){
     char *die_name = get_die_name_raw(dbg, die);
     Dwarf_Half die_tag = get_die_tag_raw(dbg, die);
 
@@ -343,8 +345,10 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         }
 
         generate_data_type_info(dbg, compile_unit, typedie,
-                outtype, outsize, maxlen, level+1);
-        dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
+                outtype, outsize, base_tag, base_die, maxlen, level+1);
+
+        if(typedie != *base_die)
+            dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
 
         return;
     }
@@ -360,8 +364,10 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             strcat(outtype, "void");
         else{
             generate_data_type_info(dbg, compile_unit, typedie,
-                    outtype, outsize, maxlen, level+1);
-            dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
+                    outtype, outsize, base_tag, base_die, maxlen, level+1);
+
+            if(typedie != *base_die)
+                dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
         }
 
         strcat(outtype, "(");
@@ -377,11 +383,12 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
         for(;;){
             generate_data_type_info(dbg, compile_unit, parameter_die,
-                    outtype, outsize, maxlen, level+1);
+                    outtype, outsize, base_tag, base_die, maxlen, level+1);
 
             Dwarf_Die sibling_die = get_sibling_die(dbg, parameter_die);
 
-            dwarf_dealloc(dbg, parameter_die, DW_DLA_DIE);
+            if(parameter_die != *base_die)
+                dwarf_dealloc(dbg, parameter_die, DW_DLA_DIE);
 
             if(!sibling_die)
                 break;
@@ -400,6 +407,13 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             die_tag == DW_TAG_enumeration_type ||
             die_tag == DW_TAG_structure_type ||
             die_tag == DW_TAG_union_type){
+        *base_tag = die_tag;
+        *base_die = die;
+        /*write_tabs(level);
+        const char *n = NULL;
+        dwarf_get_TAG_name(*base_tag, &n);
+        printf("base_tag '%s'\n", n);
+        */
         if(die_name){
             size_t outtype_len = strlen(outtype);
 
@@ -416,10 +430,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             Dwarf_Error d_error = NULL;
             int ret = dwarf_bytesize(die, outsize, &d_error);
 
-            if(ret == DW_DLV_ERROR){
-                dprintf("dealloc\n");
+            if(ret == DW_DLV_ERROR)
                 dwarf_dealloc(dbg, d_error, DW_DLA_ERROR);
-            }
         }
 
         return;
@@ -470,9 +482,10 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
     // printf("Level %d: got type: '"RED"%s"RESET"'\n", level, type);
 
     generate_data_type_info(dbg, compile_unit, typedie,
-            outtype, outsize, maxlen, level+1);
+            outtype, outsize, base_tag, base_die, maxlen, level+1);
 
-    dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
+    if(typedie != *base_die)
+        dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
 
     if(die_tag == DW_TAG_array_type){
         /* Number of subrange DIEs denote how many dimensions */
@@ -498,7 +511,6 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
                 const char *a = "[]";
                 strcat(outtype, a);
 
-                // XXX set outsize to the array's base type
                 *outsize = NON_COMPILE_TIME_CONSTANT_SIZE;
                 break;
             }
@@ -512,7 +524,9 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
             Dwarf_Die sibling_die = get_sibling_die(dbg, subrange_die);
 
-            dwarf_dealloc(dbg, subrange_die, DW_DLA_DIE);
+            /* unlikely, but just to be sure */
+            if(subrange_die != *base_die)
+                dwarf_dealloc(dbg, subrange_die, DW_DLA_DIE);
 
             if(!sibling_die)
                 break;
@@ -551,7 +565,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
         char *typedeftype = get_die_name_raw(dbg, typedie);
 
-        dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
+        if(typedie != *base_die)
+            dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
 
         //write_tabs(level);
         //printf("got underlying typedef type '%s'\n", typedeftype);
@@ -622,8 +637,10 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
     strncat(outtype, type_tag_string, type_tag_len);
 }
 
+static die_t *create_new_die(dwarfinfo_t *d, void *, Dwarf_Die, int);
+
 static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
-        die_t **die){
+        die_t **die, int level){
     Dwarf_Debug dbg = dwarfinfo->di_dbg;
     Dwarf_Error d_error = NULL;
     Dwarf_Attribute attr = NULL;
@@ -657,6 +674,8 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
             &((*die)->die_datatypedietag), &d_error);
 
     Dwarf_Half tag = (*die)->die_datatypedietag;
+    Dwarf_Half base_tag = 0;
+    Dwarf_Die base_die = NULL;
 
     /* If this DIE already represents a base type (int, double, etc)
      * or an enum, we're done.
@@ -689,12 +708,24 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
         Dwarf_Unsigned size = 0;
 
         generate_data_type_info(dwarfinfo->di_dbg, compile_unit,
-                (*die)->die_datatypedie, name, &size, maxlen, 0);
+                (*die)->die_datatypedie, name, &size, &base_tag, &base_die, maxlen, 0);
 
         IS_POINTER = 0;
 
         (*die)->die_databytessize = size;
         (*die)->die_datatypename = strdup(name);
+    }
+
+    /* For structs and unions, (*die)->die_dwarfdie doesn't contain
+     * the members as children, the type die does.
+     */
+    if(base_tag == DW_TAG_structure_type || base_tag == DW_TAG_union_type){
+        //write_tabs(level);
+        //printf("base die %p\n", base_die);
+        (*die)->die_structoruniontypedie =
+            create_new_die(dwarfinfo, compile_unit, base_die, level+1);
+
+        int bkpthere = 0;
     }
 }
 
@@ -706,24 +737,13 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
     Dwarf_Attribute attr = NULL;
     get_die_attribute(dbg, (*die)->die_dwarfdie, whichattr, &attr);
 
-    if(!attr){
-        //dprintf("no DW_AT_location on this DIE\n");
+    if(!attr)
         return;
-    }
 
     Dwarf_Error d_error = NULL;
-
-    /*
-       Dwarf_Half form = 0;
-       dwarf_whatform(locexpr_attr, &form, &d_error);
-       const char *fname = NULL;
-       dwarf_get_FORM_name(form, &fname);
-
-       dprintf("Form '%s'\n", fname);
-       */
-
     Dwarf_Loc_Head_c loclisthead = NULL;
-    int lret = dwarf_get_loclist_c(attr, &loclisthead,//&((*die)->die_loclisthead),
+
+    int lret = dwarf_get_loclist_c(attr, &loclisthead,
             &((*die)->die_loclistcnt), &d_error);
 
     dwarf_dealloc(dbg, attr, DW_DLA_ATTR);
@@ -731,7 +751,6 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
     if(lret == DW_DLV_OK){
         Dwarf_Unsigned lcount = (*die)->die_loclistcnt;
 
-        //(*die)->die_locdescs = calloc(lcount, sizeof(struct dwarf_locdesc));
         initialize_die_loclists(&((*die)->die_loclists), lcount);
 
         for(Dwarf_Unsigned i=0; i<lcount; i++){
@@ -938,7 +957,7 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
     dwarf_die_abbrev_children_flag((*die)->die_dwarfdie,
             &((*die)->die_haschildren));
 
-    get_die_data_type_info(dwarfinfo, compile_unit, die);
+    get_die_data_type_info(dwarfinfo, compile_unit, die, level);
 
     ret = dwarf_lowpc((*die)->die_dwarfdie, &((*die)->die_low_pc), &d_error);
 
@@ -967,24 +986,6 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
 
     copy_location_lists(dbg, die, DW_AT_location, level);
     copy_location_lists(dbg, die, DW_AT_frame_base, level);
-    /*
-       Dwarf_Attribute locexpr_attr = NULL;
-       get_die_attribute(dbg, (*die)->die_dwarfdie, DW_AT_location,
-       &locexpr_attr);
-
-       if(locexpr_attr){
-       ret = dwarf_formexprloc(locexpr_attr, &((*die)->die_locexprlen),
-       &((*die)->die_locexpr), &d_error);
-
-       if(ret == DW_DLV_ERROR){
-       printf("%s\n", dwarf_errmsg_by_number(dwarf_errno(d_error)));
-       exit(0);
-       dwarf_dealloc(dbg, d_error, DW_DLA_ERROR);
-       }
-       }
-
-       dwarf_dealloc(dbg, locexpr_attr, DW_DLA_ATTR);
-       */
 
     return 0;
 }
@@ -1005,11 +1006,27 @@ static void describe_die_internal(die_t *die, int level){
     if(die->die_haschildren)
         varnamecolorstr = GREEN;
 
-    printf("%#llx: <%d> <%s>: '%s%s%s', is parent: %d, type DIE at %s%#llx%s",
+    printf("%#llx: <%d> <%s>: '%s%s%s', is parent: %d",
             die->die_dieoffset, level, die->die_tagname,
             varnamecolorstr, die->die_diename, RESET,
-            die->die_haschildren, die->die_datatypedieoffset!=0?CYAN:"",
-            die->die_datatypedieoffset, die->die_datatypedieoffset!=0?RESET:"");
+            die->die_haschildren);
+
+    if(die->die_structoruniontypedie){
+        Dwarf_Unsigned off =
+            die->die_structoruniontypedie->die_dieoffset;
+
+        printf(", type DIE at %s%s%#llx%s%s (struct or union)",
+                off!=0?LIGHT_GREEN_BG:"",
+                off!=0?BLACK:"", off,
+                off!=0?RESET:"",
+                off!=0?RESET_BG:"");
+    }
+    else{
+        printf(", type DIE at %s%#llx%s",
+                die->die_datatypedieoffset!=0?CYAN:"",
+                die->die_datatypedieoffset, die->die_datatypedieoffset!=0?RESET:"");
+    }
+
 
     if(die->die_datatypedieoffset!=0){
         printf(", type = '"LIGHT_BLUE"%s"RESET"'", die->die_datatypename);
@@ -1158,6 +1175,9 @@ static void describe_die_internal(die_t *die, int level){
 
 static die_t *create_new_die(dwarfinfo_t *dwarfinfo, void *compile_unit,
         Dwarf_Die based_on, int level){
+    if(!based_on)
+        return NULL;
+
     die_t *d = calloc(1, sizeof(die_t));
     d->die_dwarfdie = based_on;
 
@@ -1174,7 +1194,7 @@ static die_t *create_new_die(dwarfinfo_t *dwarfinfo, void *compile_unit,
 }
 
 static int should_add_die_to_tree(die_t *die){
-    const Dwarf_Half accepted_tags[] = {
+    const static Dwarf_Half accepted_tags[] = {
         DW_TAG_compile_unit, DW_TAG_subprogram, DW_TAG_inlined_subroutine,
         DW_TAG_formal_parameter, DW_TAG_enumeration_type, DW_TAG_enumerator,
         DW_TAG_structure_type, DW_TAG_union_type, DW_TAG_member,
