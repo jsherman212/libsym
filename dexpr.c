@@ -1108,13 +1108,10 @@ void initialize_die_loclists(struct dwarf_locdesc ***locdescs,
 }
 
 void loc_free(struct dwarf_locdesc *locdesc){
-   // putchar(' ');
     struct dwarf_locdesc *current = locdesc;
-    int cnt = 0;
 
     while(current){
         struct dwarf_locdesc *f = current;
-     //  printf("%d: freeing %p\n", cnt++, current);
         current = current->locdesc_next;
         free(f);
     }
