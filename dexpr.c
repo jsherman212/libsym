@@ -481,9 +481,10 @@ static char *evaluate_frame_base(struct dwarf_locdesc *framebaselocdesc){
 // evaluator, will return a computed location
 char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
         struct dwarf_locdesc *locdesc, uint64_t pc){
+    /*
     if(!locdesc)
         return strdup("error: NULL locdesc");
-
+    */
     /*
     if(!is_locdesc_in_bounds(locdesc, pc))
         return strdup("error: PC out of bounds");

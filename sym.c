@@ -9,6 +9,7 @@
 #include "compunit.h"
 #include "die.h"
 #include "linkedlist.h"
+#include "symerr.h"
 
 #include <libdwarf.h>
 
@@ -71,8 +72,6 @@ void sym_end(dwarfinfo_t **_dwarfinfo){
 
     linkedlist_free(dwarfinfo->di_compunits);
     free(dwarfinfo);
-
-    dprintf("here\n");
 }
 
 void sym_display_compilation_units(dwarfinfo_t *dwarfinfo){
@@ -127,6 +126,21 @@ void **sym_get_function_die_parameters(void *die, int *len){
     return die_get_parameters(die, len);
 }
 
+int sym_get_variable_dies(dwarfinfo_t *dwarfinfo, uint64_t pc,
+        void ***vardies, int *len){
+    void *cu = cu_find_compilation_unit_by_pc(dwarfinfo, pc);
+
+    if(!cu)
+        return 1;
+
+    void *fxndie = sym_find_function_die_by_pc(cu, pc);
+
+    if(!fxndie)
+        return 1;
+
+    return die_get_variables(dwarfinfo->di_dbg, fxndie, vardies, len);
+}
+
 void *sym_get_line_info_from_pc(dwarfinfo_t *dwarfinfo, uint64_t pc,
         char **outsrcfilename, char **outsrcfunction,
         uint64_t *outsrcfilelineno){
@@ -143,6 +157,28 @@ void *sym_get_line_info_from_pc(dwarfinfo_t *dwarfinfo, uint64_t pc,
     return root_die;
 }
 
+void *sym_get_pc_of_next_line(dwarfinfo_t *dwarfinfo, uint64_t pc, uint64_t *next_line_pc){
+    void *cu = cu_find_compilation_unit_by_pc(dwarfinfo, pc);
+
+    if(!cu)
+        return NULL;
+
+    void *root_die = cu_get_root_die(cu);
+
+    die_get_pc_of_next_line_a(dwarfinfo->di_dbg, root_die, pc, next_line_pc);
+
+    return root_die;
+}
+
+int sym_get_pc_values_from_lineno(dwarfinfo_t *dwarfinfo, void *cu,
+        uint64_t lineno, uint64_t **pcs, int *len){
+    if(!dwarfinfo)
+        return 1;
+
+    return die_get_pc_values_from_lineno(dwarfinfo->di_dbg,
+            cu_get_root_die(cu), lineno, pcs, len);
+}
+
 uint64_t sym_lineno_to_pc_a(dwarfinfo_t *dwarfinfo,
         char *srcfilename, uint64_t *srcfilelineno){
     void *cu = cu_find_compilation_unit_by_name(dwarfinfo, srcfilename);
@@ -156,4 +192,21 @@ uint64_t sym_lineno_to_pc_a(dwarfinfo_t *dwarfinfo,
 uint64_t sym_lineno_to_pc_b(dwarfinfo_t *dwarfinfo, void *cu,
         uint64_t *srcfilelineno){
     return die_lineno_to_pc(dwarfinfo->di_dbg, cu_get_root_die(cu), srcfilelineno);
+}
+
+int sym_pc_to_lineno_a(dwarfinfo_t *dwarfinfo, uint64_t pc, uint64_t *srcfilelineno){
+    void *cu = cu_find_compilation_unit_by_pc(dwarfinfo, pc);
+
+    if(!cu)
+        return 1;
+
+    return die_pc_to_lineno(dwarfinfo->di_dbg, cu_get_root_die(cu), pc, srcfilelineno);
+}
+
+int sym_pc_to_lineno_b(dwarfinfo_t *dwarfinfo, void *cu, uint64_t pc, uint64_t *srcfilelineno){
+    return die_pc_to_lineno(dwarfinfo->di_dbg, cu_get_root_die(cu), pc, srcfilelineno);
+}
+
+const char *sym_strerror(sym_error_t *e){
+    return errmsg(e);
 }

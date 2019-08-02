@@ -15,9 +15,6 @@ struct die {
     Dwarf_Die die_dwarfdie;
     Dwarf_Unsigned die_dieoffset;
 
-    char **die_srcfiles;
-    Dwarf_Signed die_srcfilescnt;
-
     /* If this DIE represents a compilation unit, the following
      * two are non-NULL.
      */
@@ -26,9 +23,6 @@ struct die {
 
     Dwarf_Half die_tag;
     char *die_tagname;
-
-    Dwarf_Attribute *die_attrs;
-    Dwarf_Signed die_attrcnt;
 
     /* If this DIE represents an anonymous type. */
     int die_anon;
@@ -92,6 +86,7 @@ struct die {
 };
 
 void die_search(die_t *, void *, int, die_t **);
+int die_pc_to_lineno(Dwarf_Debug, die_t *, uint64_t, uint64_t *);
 
 // XXX if this DIE represents a struct or union. is aggregate the right word?
 static int is_aggregate_type(Dwarf_Half tag){
@@ -934,8 +929,6 @@ static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
             (*die)->die_framebaselocdesc =
                 copy_locdesc(curparent->die_framebaselocdesc);
         }
-
-        int bkpthere = 0;
     }
 }
 
@@ -952,12 +945,6 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
 
     ret = dwarf_dieoffset((*die)->die_dwarfdie, &((*die)->die_dieoffset),
             &d_error);
-
-    if(ret == DW_DLV_ERROR)
-        dwarf_dealloc(dbg, d_error, DW_DLA_ERROR);
-
-    ret = dwarf_srcfiles((*die)->die_dwarfdie, &((*die)->die_srcfiles),
-            &((*die)->die_srcfilescnt), &d_error);
 
     if(ret == DW_DLV_ERROR)
         dwarf_dealloc(dbg, d_error, DW_DLA_ERROR);
@@ -1015,12 +1002,6 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
             (*die)->die_lexblock = 1;
         }
     }
-
-    ret = dwarf_attrlist((*die)->die_dwarfdie, &((*die)->die_attrs),
-            &((*die)->die_attrcnt), &d_error);
-
-    if(ret == DW_DLV_ERROR)
-        dwarf_dealloc(dbg, d_error, DW_DLA_ERROR);
 
     dwarf_die_abbrev_children_flag((*die)->die_dwarfdie,
             &((*die)->die_haschildren));
@@ -1346,27 +1327,9 @@ static void die_free(Dwarf_Debug dbg, die_t *die, int critical){
         die->die_children = NULL;
     }
 
-    for(Dwarf_Signed i=0; i<die->die_srcfilescnt; i++)
-        dwarf_dealloc(dbg, die->die_srcfiles[i], DW_DLA_STRING);
-
-    if(die->die_srcfiles){
-        dwarf_dealloc(dbg, die->die_srcfiles, DW_DLA_LIST);
-        die->die_srcfiles = NULL;
-        die->die_srcfilescnt = 0;
-    }
-
     if(die->die_srclines){
         dwarf_srclines_dealloc(dbg, die->die_srclines, die->die_srclinescnt);
         die->die_srclines = NULL;
-    }
-
-    for(Dwarf_Signed i=0; i<die->die_attrcnt; i++)
-        dwarf_dealloc(dbg, die->die_attrs[i], DW_DLA_ATTR);
-
-    if(die->die_attrs){
-        dwarf_dealloc(dbg, die->die_attrs, DW_DLA_LIST);
-        die->die_attrs = NULL;
-        die->die_attrcnt = 0;
     }
 
     char *namecopy = NULL;
@@ -1553,24 +1516,6 @@ void die_tree_free(Dwarf_Debug dbg, die_t *die, int level){
             die_tree_free(dbg, child, level+1);
             free(die->die_children[idx]);
             die->die_children[idx] = NULL;
-
-            /*
-            int cidx = 0;
-
-            if(die->die_structoruniontypedie && die->die_structoruniontypedie->die_children){
-                die_t *souchild = die->die_structoruniontypedie->die_children[cidx];
-
-                while(souchild){
-                    die_tree_free(dbg, souchild, level+1);
-                    free(die->die_structoruniontypedie->die_children[cidx]);
-                    die->die_structoruniontypedie->die_children[cidx] = NULL;
-                    souchild = die->die_structoruniontypedie->die_children[++cidx];
-                }
-            }
-            */
-
-            //free(die->die_structoruniontypedie);
-            //die->die_structoruniontypedie = NULL;
             child = die->die_children[++idx];
         }
 
@@ -1654,7 +1599,20 @@ void die_get_line_info_from_pc(Dwarf_Debug dbg, die_t *die, uint64_t pc,
         Dwarf_Line line = die->die_srclines[i];
 
         if(pc == get_dwarf_line_virtual_addr(dbg, line)){
-            *srcfilename = get_dwarf_line_filename(dbg, line);
+            char *fname = get_dwarf_line_filename(dbg, line);
+
+            /* We are only interested in the file name */
+            if(fname){
+                char *slash = strrchr(fname, '/');
+
+                if(slash)
+                    *srcfilename = strdup(slash + 1);
+                else
+                    *srcfilename = strdup(fname);
+
+                dwarf_dealloc(dbg, fname, DW_DLA_STRING);
+            }
+
             *srclineno = get_dwarf_line_lineno(dbg, line);
 
             die_t *fxndie = NULL;
@@ -1666,7 +1624,7 @@ void die_get_line_info_from_pc(Dwarf_Debug dbg, die_t *die, uint64_t pc,
                 return;
             }
 
-            *srcfunction = fxndie->die_diename;
+            *srcfunction = strdup(fxndie->die_diename);
 
             return;
         }
@@ -1689,6 +1647,7 @@ die_t **die_get_parameters(die_t *die, int *len){
      * parameters will be direct descendants.
      */
     die_t **params = malloc(sizeof(die_t));
+    params[0] = NULL;
 
     int idx = 0;
     die_t *child = die->die_children[idx];
@@ -1698,7 +1657,6 @@ die_t **die_get_parameters(die_t *die, int *len){
             die_t **params_rea = realloc(params, sizeof(die_t) * ++(*len));
             params = params_rea;
             params[(*len) - 1] = child;
-            params[*len] = NULL;
         }
 
         child = die->die_children[++idx];
@@ -1707,14 +1665,98 @@ die_t **die_get_parameters(die_t *die, int *len){
     return params;
 }
 
+void die_get_pc_of_next_line_a(Dwarf_Debug dbg, die_t *die, uint64_t start_pc, uint64_t *next_line_pc){
+    if(!die || !die->die_srclines || !next_line_pc)
+        return;
+
+    uint64_t next_line = 0, start_pc_lineno = 0;
+
+    if(die_pc_to_lineno(dbg, die, start_pc, &start_pc_lineno))
+        return;
+
+    Dwarf_Unsigned prevlineno = start_pc_lineno;
+
+    /* Lines given back aren't guarenteed to be in chronological order. */
+    for(Dwarf_Signed i=0; i<die->die_srclinescnt; i++){
+        Dwarf_Line line = die->die_srclines[i];
+        Dwarf_Unsigned curlineaddr = get_dwarf_line_virtual_addr(dbg, line);
+        Dwarf_Unsigned curlineno = get_dwarf_line_lineno(dbg, line);
+
+        if(curlineaddr <= start_pc || curlineno == 0 || start_pc_lineno == curlineno)
+            continue;
+        
+        uint64_t current = llabs((int64_t)(next_line - start_pc));
+        uint64_t diff = llabs((int64_t)(curlineaddr - start_pc));
+
+        if(diff < current && prevlineno != curlineno)
+            next_line = curlineaddr;
+
+        prevlineno = curlineno;
+    }
+
+    // XXX if this is still 0, next line's PC wasn't found
+    *next_line_pc = next_line;
+}
+
+int die_get_pc_values_from_lineno(Dwarf_Debug dbg, die_t *die,
+        uint64_t lineno, uint64_t **pcs, int *len){
+    if(!pcs || !len)
+        return 1;
+
+    *pcs = malloc(sizeof(uint64_t));
+    (*pcs)[0] = 0;
+
+    for(Dwarf_Signed i=0; i<die->die_srclinescnt; i++){
+        Dwarf_Line line = die->die_srclines[i];
+        Dwarf_Unsigned curlineaddr = get_dwarf_line_virtual_addr(dbg, line);
+        Dwarf_Unsigned curlineno = get_dwarf_line_lineno(dbg, line);
+
+        if(curlineno == lineno){
+            uint64_t *pcs_rea = realloc(*pcs, sizeof(uint64_t) * ++(*len));
+            *pcs = pcs_rea;
+            (*pcs)[(*len) - 1] = curlineaddr;
+        }
+    }
+
+    return 0;
+}
+
+int die_get_variables(Dwarf_Debug dbg, die_t *die, die_t ***vardies,
+        int *len){
+    if(!die || !vardies || !len)
+        return 1;
+
+    if(!(*vardies))
+        *vardies = malloc(sizeof(die_t));
+
+    if(die->die_tag == DW_TAG_variable){
+        die_t **vardies_rea = realloc(*vardies, sizeof(die_t) * ++(*len));
+        *vardies = vardies_rea;
+        (*vardies)[(*len) - 1] = die;
+    }
+
+    if(!die->die_haschildren)
+        return 0;
+    else{
+        int idx = 0;
+        die_t *child = die->die_children[idx];
+
+        int ret = 0;
+
+        while(child){
+            ret = die_get_variables(dbg, child, vardies, len);
+            child = die->die_children[++idx];
+        }
+
+        return ret;
+    }
+
+    return 0;
+}
+
 uint64_t die_lineno_to_pc(Dwarf_Debug dbg, die_t *die, uint64_t *lineno){
-    if(!die || !die->die_srclines)
+    if(!die || !die->die_srclines || !lineno)
         return 0;
-
-    if(!lineno)
-        return 0;
-
-    Dwarf_Error d_error = NULL;
 
     /* Find the closest line to lineno. Sometimes the source file does
      * not accurately reflect the compiled program.
@@ -1748,9 +1790,31 @@ uint64_t die_lineno_to_pc(Dwarf_Debug dbg, die_t *die, uint64_t *lineno){
     return get_dwarf_line_virtual_addr(dbg, closestline);
 }
 
+int die_pc_to_lineno(Dwarf_Debug dbg, die_t *die, uint64_t target_pc,
+        uint64_t *lineno){
+    if(!die || !die->die_srclines || !lineno)
+        return 1;
+
+    /* If we're given a PC to match against, we should match exactly. */
+    for(Dwarf_Signed i=0; i<die->die_srclinescnt; i++){
+        Dwarf_Line line = die->die_srclines[i];
+        Dwarf_Unsigned curlineaddr = get_dwarf_line_virtual_addr(dbg, line);
+        //Dwarf_Unsigned curlineno = get_dwarf_line_lineno(dbg, line);
+
+       // dprintf("line %lld @ %#llx\n", curlineno, curlineaddr);
+
+        if(target_pc == curlineaddr){
+            *lineno = get_dwarf_line_lineno(dbg, line);
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
 static int die_is_func_in_range(die_t *die, void *pc){
     return die->die_tag == DW_TAG_subprogram &&
-        (uint64_t)pc >= die->die_low_pc && (uint64_t)pc <= die->die_high_pc;
+        (uint64_t)pc >= die->die_low_pc && (uint64_t)pc < die->die_high_pc;
 }
 
 static int die_name_matches(die_t *die, void *name){

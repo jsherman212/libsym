@@ -29,7 +29,11 @@ int main(int argc, char **argv, const char **envp){
         CHOICE_RESET_CURRENT_COMPILE_UNIT,
         CHOICE_DISPLAY_DIE_TREE_FROM_ROOT,
         CHOICE_CONVERT_LINE_NUMBER_TO_PC,
+        CHOICE_CONVERT_PC_TO_LINE_NUMBER,
+        CHOICE_GET_PC_VALUES_FROM_LINE_NUMBER,
         CHOICE_GET_LINE_INFO_FROM_PC,
+        CHOICE_GET_LINE_AFTER_PC,
+        CHOICE_GET_VARIABLE_DIES_AROUND_PC,
         CHOICE_DISPLAY_DIE_MENU,
         CHOICE_QUIT
     };
@@ -45,6 +49,8 @@ int main(int argc, char **argv, const char **envp){
         CHOICE_DISPLAY_COMPILATION_UNIT_MENU
     };
 
+    void *sym_error = NULL;
+
     // XXX: do NOT use any function not preceded by 'sym_'.
     // Would defeat the purpose of the abstraction
 
@@ -57,9 +63,13 @@ int main(int argc, char **argv, const char **envp){
                     "3. Reset current compile unit\n"
                     "4. Display this compile unit root DIE tree\n"
                     "5. Convert line number to a virtual address in this CU\n"
-                    "6. Get line info from an arbitrary PC\n"
-                    "7. Display DIE menu\n"
-                    "8. Quit\n");
+                    "6. Convert PC to line number\n"
+                    "7. Get the PC values a source line comprises of\n"
+                    "8. Get line info from an arbitrary PC\n"
+                    "9. Starting from an arbitrary PC, get the PC of the line right after\n"
+                    "10. Display variables from a function, given an arbitrary PC\n"
+                    "11. Display DIE menu\n"
+                    "12. Quit\n");
             int choice = 0;
             scanf("%d", &choice);
 
@@ -135,6 +145,64 @@ int main(int argc, char **argv, const char **envp){
 
                         break;
                     }
+                case CHOICE_CONVERT_PC_TO_LINE_NUMBER:
+                    {
+                        if(!current_compile_unit){
+                            printf("No selected compile unit\n\n");
+                            break;
+                        }
+
+                        uint64_t pc = 0;
+                        printf("\nEnter PC: ");
+                        scanf("%llx", &pc);
+
+                        uint64_t lineno = 0;
+                        if(sym_pc_to_lineno_b(dwarfinfo, current_compile_unit, pc, &lineno)){
+                            printf("Couldn't get line number of PC %#llx\n\n", pc);
+                            break;
+                        }
+
+                        printf("%#llx = line %lld\n\n", pc, lineno);
+
+                        break;
+                    }
+                case CHOICE_GET_PC_VALUES_FROM_LINE_NUMBER:
+                    {
+                        if(!current_compile_unit){
+                            printf("No selected compile unit\n\n");
+                            break;
+                        }
+
+                        uint64_t lineno = 0;
+                        printf("\nEnter line number: ");
+                        scanf("%lld", &lineno);
+
+                        uint64_t *pcs = NULL;
+                        int len = 0;
+                        if(sym_get_pc_values_from_lineno(dwarfinfo,
+                                    current_compile_unit, lineno, &pcs, &len)){
+                            printf("Couldn't get PC values for source line %lld\n\n",
+                                    lineno);
+                        }
+
+                        if(len == 0){
+                            printf("No PC values for source line %lld\n\n",
+                                    lineno);
+                            break;
+                        }
+
+                        putchar('\n');
+
+                        for(int i=0; i<len-1; i++)
+                            printf("%#llx, ", pcs[i]);
+
+                        if(len > 0)
+                            printf("%#llx\n\n", pcs[len - 1]);
+
+                        free(pcs);
+
+                        break;
+                    }
                 case CHOICE_GET_LINE_INFO_FROM_PC:
                     {
                         // XXX this option doesn't need a compile unit to function,
@@ -163,6 +231,73 @@ int main(int argc, char **argv, const char **envp){
                         }
 
                         putchar('\n');
+
+                        break;
+                    }
+                case CHOICE_GET_LINE_AFTER_PC:
+                    {
+                        uint64_t pc = 0;
+                        printf("\nEnter current PC: ");
+                        scanf("%llx", &pc);
+
+                        uint64_t next_line_pc = 0;
+
+                        void *root_die = sym_get_pc_of_next_line(dwarfinfo, pc, &next_line_pc);
+
+                        if(!root_die){
+                            printf("No line after PC %#llx\n\n", pc);
+                            break;
+                        }
+
+                        printf("Next line is at %#llx\n\n", next_line_pc);
+
+                        char *srcfilename = NULL, *srcfunction = NULL;
+                        uint64_t srcfilelineno = 0;
+
+                        root_die =
+                            sym_get_line_info_from_pc(dwarfinfo, next_line_pc,
+                                    &srcfilename, &srcfunction, &srcfilelineno);
+
+                        if(root_die){
+                            printf("Next line is at %#llx: %s:%s:%lld\n",
+                                    next_line_pc, srcfilename, srcfunction, srcfilelineno);
+
+                            free(srcfilename);
+                            free(srcfunction);
+                        }
+                        else{
+                            printf("\nCouldn't get line info\n");
+                        }
+
+                        putchar('\n');
+
+                        break;
+                    }
+                case CHOICE_GET_VARIABLE_DIES_AROUND_PC:
+                    {
+                        uint64_t pc = 0;
+                        printf("\nEnter PC: ");
+                        scanf("%llx", &pc);
+
+                        void **vardies = NULL;
+                        int len = 0;
+
+                        if(sym_get_variable_dies(dwarfinfo, pc,
+                                    &vardies, &len)){
+                            printf("Couldn't get variable DIEs around PC %#llx\n\n",
+                                    pc);
+                            break;
+                        }
+
+                        if(len == 0){
+                            printf("No variable DIEs around PC %#llx\n\n", pc);
+                            break;
+                        }
+
+                        for(int i=0; i<len; i++)
+                            sym_display_die(vardies[i]);
+
+                        free(vardies);
 
                         break;
                     }
@@ -280,13 +415,8 @@ int main(int argc, char **argv, const char **envp){
                         if(!params)
                             printf("Couldn't get parameters from the current DIE\n");
                         else{
-                            int idx = 0;
-                            void *curparam = params[idx];
-
-                            while(curparam){
-                                sym_display_die(curparam);
-                                curparam = params[++idx];
-                            }
+                            for(int i=0; i<len; i++)
+                                sym_display_die(params[i]);
 
                             free(params);
                         }
