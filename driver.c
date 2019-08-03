@@ -10,14 +10,14 @@ int main(int argc, char **argv, const char **envp){
     }
 
     char *file = argv[1];
-    char *error = NULL;
 
+    sym_error_t sym_error = {0};
     void *dwarfinfo = NULL;
 
-    if(sym_init_with_dwarf_file(file, &dwarfinfo, &error))
-        printf("error: %s\n", error);
+    if(sym_init_with_dwarf_file(file, &dwarfinfo, &sym_error))
+        printf("error: %s\n", sym_strerror(sym_error));
 
-    free(error);
+    errclear(&sym_error);
 
     int display_compile_unit_menu = 1;
 
@@ -49,7 +49,6 @@ int main(int argc, char **argv, const char **envp){
         CHOICE_DISPLAY_COMPILATION_UNIT_MENU
     };
 
-    void *sym_error = NULL;
 
     // XXX: do NOT use any function not preceded by 'sym_'.
     // Would defeat the purpose of the abstraction
@@ -77,14 +76,23 @@ int main(int argc, char **argv, const char **envp){
                 case CHOICE_CHOOSE_COMPILE_UNIT:
                     {
                         printf("Compile units:\n");
-                        sym_display_compilation_units(dwarfinfo);
+                        if(sym_display_compilation_units(dwarfinfo, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
+
                         printf("\nWhich? Enter name: ");
                         char name[200] = {0};
                         scanf("%s", name);
 
                         void *prev_compile_unit = current_compile_unit;
-                        current_compile_unit =
-                            sym_find_compilation_unit_by_name(dwarfinfo, name);
+                        if(sym_find_compilation_unit_by_name(dwarfinfo,
+                                    &current_compile_unit, name, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
 
                         if(current_compile_unit)
                             printf("Selected compile unit '%s'\n", name);
@@ -99,7 +107,11 @@ int main(int argc, char **argv, const char **envp){
                     }
                 case CHOICE_LIST_COMPILE_UNITS:
                     {
-                        sym_display_compilation_units(dwarfinfo);
+                        if(sym_display_compilation_units(dwarfinfo, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
                         printf("\n");
                         break;
                     }
@@ -116,8 +128,14 @@ int main(int argc, char **argv, const char **envp){
                             break;
                         }
 
-                        void *comp_root_die =
-                            sym_get_compilation_unit_root_die(current_compile_unit);
+                        void *comp_root_die = NULL;
+
+                        if(sym_get_compilation_unit_root_die(current_compile_unit,
+                                    &comp_root_die, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
 
                         sym_display_die_tree_starting_from(comp_root_die);
                         printf("\n");
@@ -134,11 +152,24 @@ int main(int argc, char **argv, const char **envp){
                         printf("\nLine number? ");
                         scanf("%lld", &lineno);
 
-                        uint64_t pc =
-                            sym_lineno_to_pc_b(dwarfinfo, current_compile_unit, &lineno);
+                        uint64_t pc = 0;
 
-                        void *comp_root_die =
-                            sym_get_compilation_unit_root_die(current_compile_unit);
+                        if(sym_lineno_to_pc_b(dwarfinfo, current_compile_unit,
+                                    &lineno, &pc, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
+
+                        void *comp_root_die = NULL;
+
+                        if(sym_get_compilation_unit_root_die(current_compile_unit,
+                                    &comp_root_die, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
+
                         char *name = sym_get_die_name(comp_root_die);
 
                         printf("\n%s:%lld: %#llx\n\n", name, lineno, pc);
@@ -157,8 +188,10 @@ int main(int argc, char **argv, const char **envp){
                         scanf("%llx", &pc);
 
                         uint64_t lineno = 0;
-                        if(sym_pc_to_lineno_b(dwarfinfo, current_compile_unit, pc, &lineno)){
-                            printf("Couldn't get line number of PC %#llx\n\n", pc);
+                        if(sym_pc_to_lineno_b(dwarfinfo, current_compile_unit,
+                                    pc, &lineno, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
                             break;
                         }
 
@@ -180,9 +213,11 @@ int main(int argc, char **argv, const char **envp){
                         uint64_t *pcs = NULL;
                         int len = 0;
                         if(sym_get_pc_values_from_lineno(dwarfinfo,
-                                    current_compile_unit, lineno, &pcs, &len)){
-                            printf("Couldn't get PC values for source line %lld\n\n",
-                                    lineno);
+                                    current_compile_unit, lineno, &pcs,
+                                    &len, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
                         }
 
                         if(len == 0){
@@ -215,9 +250,15 @@ int main(int argc, char **argv, const char **envp){
                         char *srcfilename = NULL, *srcfunction = NULL;
                         uint64_t srcfilelineno = 0;
 
-                        void *root_die =
-                            sym_get_line_info_from_pc(dwarfinfo, pc,
-                                    &srcfilename, &srcfunction, &srcfilelineno);
+                        void *root_die = NULL;
+                        
+                        if(sym_get_line_info_from_pc(dwarfinfo, pc,
+                                    &srcfilename, &srcfunction,
+                                    &srcfilelineno, &root_die, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
 
                         if(root_die){
                             printf("%#llx: %s:%s:%lld\n",
@@ -242,7 +283,14 @@ int main(int argc, char **argv, const char **envp){
 
                         uint64_t next_line_pc = 0;
 
-                        void *root_die = sym_get_pc_of_next_line(dwarfinfo, pc, &next_line_pc);
+                        void *root_die = NULL;
+
+                        if(sym_get_pc_of_next_line(dwarfinfo, pc,
+                                    &next_line_pc, &root_die, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
 
                         if(!root_die){
                             printf("No line after PC %#llx\n\n", pc);
@@ -254,9 +302,13 @@ int main(int argc, char **argv, const char **envp){
                         char *srcfilename = NULL, *srcfunction = NULL;
                         uint64_t srcfilelineno = 0;
 
-                        root_die =
-                            sym_get_line_info_from_pc(dwarfinfo, next_line_pc,
-                                    &srcfilename, &srcfunction, &srcfilelineno);
+                        if(sym_get_line_info_from_pc(dwarfinfo, pc,
+                                    &srcfilename, &srcfunction,
+                                    &srcfilelineno, &root_die, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
 
                         if(root_die){
                             printf("Next line is at %#llx: %s:%s:%lld\n",
@@ -283,9 +335,9 @@ int main(int argc, char **argv, const char **envp){
                         int len = 0;
 
                         if(sym_get_variable_dies(dwarfinfo, pc,
-                                    &vardies, &len)){
-                            printf("Couldn't get variable DIEs around PC %#llx\n\n",
-                                    pc);
+                                    &vardies, &len, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
                             break;
                         }
 
@@ -338,8 +390,14 @@ int main(int argc, char **argv, const char **envp){
             switch(choice){
                 case CHOICE_FIND_DIE_BY_NAME:
                     {
-                        void *comp_root_die =
-                            sym_get_compilation_unit_root_die(current_compile_unit);
+                        void *comp_root_die = NULL;
+
+                        if(sym_get_compilation_unit_root_die(current_compile_unit,
+                                    &comp_root_die, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
 
                         sym_display_die_tree_starting_from(comp_root_die);
 
@@ -348,7 +406,12 @@ int main(int argc, char **argv, const char **envp){
                         scanf("%s", name);
 
                         void *prev_die = current_die;
-                        current_die = sym_find_die_by_name(current_compile_unit, name);
+                        if(sym_find_die_by_name(current_compile_unit, name,
+                                    &current_die, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
 
                         if(current_die)
                             printf("Selected die '%s'\n", name);
@@ -364,8 +427,14 @@ int main(int argc, char **argv, const char **envp){
                     {
                         void *d = current_die;
                         
-                        if(!current_die)
-                            d = sym_get_compilation_unit_root_die(current_compile_unit);
+                        if(!current_die){
+                            if(sym_get_compilation_unit_root_die(current_compile_unit,
+                                        &d, &sym_error)){
+                                printf("error: %s\n", sym_strerror(sym_error));
+                                errclear(&sym_error);
+                                break;
+                            }
+                        }
                         
                         sym_display_die_tree_starting_from(d);
 
@@ -374,7 +443,12 @@ int main(int argc, char **argv, const char **envp){
                         scanf("%llx", &pc);
 
                         void *prev_die = current_die;
-                        current_die = sym_find_function_die_by_pc(current_compile_unit, pc);
+                        if(sym_find_function_die_by_pc(current_compile_unit,
+                                    pc, &current_die, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
 
                         if(current_die){
                             char *name = sym_get_die_name(current_die);

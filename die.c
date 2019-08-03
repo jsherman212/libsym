@@ -326,7 +326,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
         /* Unlikely, but prevent setting outsize after it has been set once. */
         if(*outsize == 0 && *outsize != NON_COMPILE_TIME_CONSTANT_SIZE)
-            *outsize = cu_get_address_size(compile_unit);
+            cu_get_address_size(compile_unit, (Dwarf_Half *)outsize, NULL);
     }
 
     Dwarf_Unsigned die_offset = get_die_offset(dbg, die);
