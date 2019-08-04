@@ -12,6 +12,12 @@
 
 typedef struct die die_t;
 
+enum {
+    DTC_POINTER =           (1 << 0),
+    DTC_STRUCT_OR_UNION =   (1 << 1),
+    DTC_ARRAY =             (1 << 2)
+};
+
 struct die {
     Dwarf_Die die_dwarfdie;
     Dwarf_Unsigned die_dieoffset;
@@ -44,15 +50,26 @@ struct die {
     die_t *die_parent;
 
     /* If this DIE describes any sort of variable/parameter in the
-     * debugged program, the following six are initialized.
+     * debugged program, the following ten are initialized.
      */
     Dwarf_Unsigned die_datatypedieoffset;
     Dwarf_Die die_datatypedie;
     Dwarf_Half die_datatypedietag;
+    /* For example, we may have a struct hidden behind a typedef */
+    Dwarf_Half die_basedatatypedietag;
     /* DW_ATE_* */
     Dwarf_Half die_datatypeencoding;
     Dwarf_Unsigned die_databytessize;
     char *die_datatypename;
+    /* If we have an array, we need to know the size of the elements */
+    Dwarf_Unsigned die_arrmembsz;
+    /* Also, we have to know the encoding of the elements (DW_ATE_*) */
+    Dwarf_Half die_arrmembencoding;
+    /* High level data type classification. Really, we are only interested
+     * in if this data type DIE represents a pointer, struct, union,
+     * array, or base type.
+     */
+    unsigned int die_datatypeclass : 3;
 
     /* If this DIE represents a structure or a union, the following is
      * initialized.
@@ -312,8 +329,11 @@ static int lex_block_count = 0, anon_struct_count = 0, anon_union_count = 0,
            anon_enum_count = 0, IS_POINTER = 0;
 
 static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
-        Dwarf_Die die, char *outtype, Dwarf_Unsigned *outsize, Dwarf_Half *base_tag,
-        Dwarf_Die *base_die, Dwarf_Half *base_die_encoding, int maxlen, int level){
+        Dwarf_Die die, char *outtype, Dwarf_Unsigned *outsize,
+        Dwarf_Half *base_tag, Dwarf_Die *base_die,
+        Dwarf_Half *base_die_encoding, Dwarf_Unsigned *arrmembsz,
+        Dwarf_Half *arrmembencoding, unsigned int *classification, int maxlen,
+        int level){
     char *die_name = get_die_name_raw(dbg, die);
     Dwarf_Half die_tag = get_die_tag_raw(dbg, die);
 
@@ -342,7 +362,8 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         }
 
         generate_data_type_info(dbg, compile_unit, typedie,
-                outtype, outsize, base_tag, base_die, base_die_encoding, maxlen, level+1);
+                outtype, outsize, base_tag, base_die, base_die_encoding,
+                arrmembsz, arrmembencoding, classification, maxlen, level+1);
 
         if(typedie != *base_die)
             dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
@@ -361,7 +382,9 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             strcat(outtype, "void");
         else{
             generate_data_type_info(dbg, compile_unit, typedie,
-                    outtype, outsize, base_tag, base_die, base_die_encoding, maxlen, level+1);
+                    outtype, outsize, base_tag, base_die, base_die_encoding,
+                    arrmembsz, arrmembencoding, classification,
+                    maxlen, level+1);
 
             if(typedie != *base_die)
                 dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
@@ -380,7 +403,9 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
         for(;;){
             generate_data_type_info(dbg, compile_unit, parameter_die,
-                    outtype, outsize, base_tag, base_die, base_die_encoding, maxlen, level+1);
+                    outtype, outsize, base_tag, base_die, base_die_encoding,
+                    arrmembsz, arrmembencoding, classification,
+                    maxlen, level+1);
 
             Dwarf_Die sibling_die = get_sibling_die(dbg, parameter_die);
 
@@ -409,7 +434,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
         if(die_tag == DW_TAG_base_type && !IS_POINTER){
             Dwarf_Unsigned off = get_die_offset(dbg, die);
-            dprintf("base type for DIE %#llx\n", off);
+            //dprintf("base type for DIE %#llx\n", off);
             Dwarf_Attribute dw_at_encoding_attr = NULL;
             get_die_attribute(dbg, die, DW_AT_encoding, &dw_at_encoding_attr);
 
@@ -419,11 +444,10 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
                 dwarf_dealloc(dbg, dw_at_encoding_attr, DW_DLA_ATTR);
             }
         }
-        /*write_tabs(level);
-        const char *n = NULL;
-        dwarf_get_TAG_name(*base_tag, &n);
-        printf("base_tag '%s'\n", n);
-        */
+
+        if(die_tag == DW_TAG_structure_type || die_tag == DW_TAG_union_type)
+            *classification |= DTC_STRUCT_OR_UNION;
+
         if(die_name){
             size_t outtype_len = strlen(outtype);
 
@@ -492,20 +516,14 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
     // printf("Level %d: got type: '"RED"%s"RESET"'\n", level, type);
 
     generate_data_type_info(dbg, compile_unit, typedie,
-            outtype, outsize, base_tag, base_die, base_die_encoding, maxlen, level+1);
+            outtype, outsize, base_tag, base_die, base_die_encoding,
+            arrmembsz, arrmembencoding, classification, maxlen, level+1);
 
     if(typedie != *base_die)
         dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
 
     if(die_tag == DW_TAG_array_type){
-        /*
-        Dwarf_Die typedie2 = get_type_die(dbg, die);
-
-        if(typedie2){
-            generate_data_type_info(dbg, compile_unit, typedie2,
-                    outtype, outsize, base_tag, base_die, base_die_encoding, maxlen, level+1);
-        }
-        */
+        *classification |= DTC_ARRAY;
 
         /* Number of subrange DIEs denote how many dimensions */
         Dwarf_Die subrange_die = get_child_die(dbg, die);
@@ -514,6 +532,28 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             return;
 
         for(;;){
+            // XXX subrange typedie is useless for this, use die
+            Dwarf_Die subrange_typedie = get_type_die(dbg, die);//subrange_die);
+
+            if(subrange_typedie){
+                char unused_outtype[250] = {0};
+                Dwarf_Unsigned membsz = 0;
+                Dwarf_Half unused_base_tag = 0;
+                Dwarf_Die unused_base_die = NULL;
+                Dwarf_Half membencoding = 0;
+                generate_data_type_info(dbg, compile_unit, subrange_typedie,
+                        unused_outtype, &membsz, &unused_base_tag,
+                        &unused_base_die, &membencoding,
+                        arrmembsz, arrmembencoding,
+                        classification, maxlen, level+1);
+
+                write_tabs(level);
+                printf("got array memb sz %#llx\n", membsz);
+
+                *arrmembsz = membsz;
+                *arrmembencoding = membencoding;
+            }
+            
             Dwarf_Attribute count_attr = NULL;
 
             if(get_die_attribute(dbg, subrange_die, DW_AT_count, &count_attr))
@@ -743,49 +783,45 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
         char name[maxlen] = {0};
         Dwarf_Unsigned size = 0;
 
+        Dwarf_Unsigned arrmembsz = 0;
+        Dwarf_Half arrmembencoding = 0;
+
+        unsigned int classification = 0;
+
         generate_data_type_info(dwarfinfo->di_dbg, compile_unit,
                 (*die)->die_datatypedie, name, &size, &base_tag,
-                &base_die, &base_die_encoding, maxlen, 0);
+                &base_die, &base_die_encoding, &arrmembsz,
+                &arrmembencoding, &classification, maxlen, 0);
+
+        if(IS_POINTER){
+            classification |= DTC_POINTER;
+
+            int bkpthere = 0;
+        }
 
         IS_POINTER = 0;
 
         (*die)->die_databytessize = size;
         (*die)->die_datatypename = strdup(name);
         (*die)->die_datatypeencoding = base_die_encoding;
+        (*die)->die_arrmembsz = arrmembsz;
+        (*die)->die_arrmembencoding = arrmembencoding;
+        (*die)->die_datatypeclass = classification;
     }
 
     /* For structs and unions, (*die)->die_dwarfdie doesn't contain
      * the members as children, the type die does.
      */
     if(base_tag == DW_TAG_structure_type || base_tag == DW_TAG_union_type){
-        //write_tabs(level);
-        //printf("base die %p\n", base_die);
         (*die)->die_structoruniontypedie =
             create_new_die(dwarfinfo, compile_unit, base_die, level+1);
-
-        /*
-        if((*die)->die_structoruniontypedie){
-            printf("(*die)->die_structoruniontypedie %p DIE name '%s'", (*die)->die_structoruniontypedie,
-                    (*die)->die_structoruniontypedie->die_diename);
-
-            die_t *p = (*die)->die_structoruniontypedie->die_parent;
-
-            if(p){
-                printf("parent name '%s'\n", p->die_diename);
-            }
-            else
-                putchar('\n');
-        }
-        //printf("(*die)->die_structoruniontypedie %p\n", (*die)->die_structoruniontypedie);
-        
-        int bkpthere = 0;
-        */
     }
+
+    (*die)->die_basedatatypedietag = base_tag;
 }
 
 static die_t *CUR_PARENTS[1000] = {0};
 
-//static void describe_die_internal(die_t *, int);
 static void copy_location_lists(Dwarf_Debug dbg, die_t **die,
         Dwarf_Half whichattr, int level){
     Dwarf_Attribute attr = NULL;
@@ -1040,6 +1076,47 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
     return 0;
 }
 
+enum {
+    PTR, STRUCT_OR_UNION, ARRAY
+};
+
+static int does_die_represent_what(die_t *die, int *retval, int what,
+        sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    if(!retval){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    if(what == PTR)
+        *retval = die->die_datatypeclass & DTC_POINTER;
+    else if(what == STRUCT_OR_UNION)
+        *retval = die->die_datatypeclass & DTC_STRUCT_OR_UNION;
+    else if(what == ARRAY)
+        *retval = die->die_datatypeclass & DTC_ARRAY;
+
+    return 0;
+}
+
+static int does_die_represent_pointer(die_t *die, int *retval,
+        sym_error_t *e){
+    return does_die_represent_what(die, retval, PTR, e);
+}
+
+static int does_die_represent_struct_or_union(die_t *die, int *retval,
+        sym_error_t *e){
+    return does_die_represent_what(die, retval, STRUCT_OR_UNION, e);
+}
+
+static int does_die_represent_array(die_t *die, int *retval,
+        sym_error_t *e){
+    return does_die_represent_what(die, retval, ARRAY, e);
+}
+
 static Dwarf_Half die_has_children(Dwarf_Die die){
     Dwarf_Half result = 0;
     dwarf_die_abbrev_children_flag(die, &result);
@@ -1087,11 +1164,31 @@ static void describe_die_internal(die_t *die, int level){
         }
     }
 
-    const char *e = NULL;
-    dwarf_get_ATE_name(die->die_datatypeencoding, &e);
+    if(die->die_tag == DW_TAG_formal_parameter ||
+            die->die_tag == DW_TAG_variable ||
+            die->die_tag == DW_TAG_member){
+        const char *e = NULL;
+        dwarf_get_ATE_name(die->die_datatypeencoding, &e);
 
-    if(e)
-        printf(", DIE data type encoding = "WHITE_BG""BLACK"%s"RESET""RESET_BG, e);
+        if(e)
+            printf(", data type encoding = "WHITE_BG""BLACK"%s"RESET""RESET_BG, e);
+        int c = die->die_datatypeclass;
+        int ptr = c & DTC_POINTER;
+        int soru = c & DTC_STRUCT_OR_UNION;
+        int a = c & DTC_ARRAY;
+        int none = (!ptr && !soru && !a);
+        printf(", %s%sPOINTER%s%s %s%sSTRUCT OR UNION%s%s %s%sARRAY%s%s %s%sOTHER%s%s",
+                ptr?GREEN_BG:RED_BG, ptr?BLACK:"", RESET, RESET_BG,
+                soru?GREEN_BG:RED_BG, soru?BLACK:"", RESET, RESET_BG,
+                a?GREEN_BG:RED_BG, a?BLACK:"", RESET, RESET_BG,
+                none?GREEN_BG:RED_BG, none?BLACK:"", RESET, RESET_BG);
+    }
+   
+    if(die->die_datatypedietag == DW_TAG_array_type){
+        printf(", membsz = %s%s%#llx%s%s",
+                MAGENTA_BG, LIGHT_YELLOW, die->die_arrmembsz,
+                RESET, RESET_BG);
+    }
 
     if(die->die_tag == DW_TAG_compile_unit ||
             die->die_tag == DW_TAG_subprogram ||
@@ -1141,7 +1238,6 @@ static void describe_die_internal(die_t *die, int level){
         putseparator = 1;
 
         for(Dwarf_Unsigned i=0; i<die->die_loclistcnt; i++){
-            //struct dwarf_locdesc *current = die->die_loclists[i];
             void *current = die->die_loclists[i];
 
             int idx2 = 0;
@@ -1154,7 +1250,6 @@ static void describe_die_internal(die_t *die, int level){
 
                 putchar('\n');
                 idx2++;
-                //current = current->locdesc_next;
                 current = get_next_location_description(current);
             }
 
@@ -1211,7 +1306,6 @@ static void describe_die_internal(die_t *die, int level){
         free(loc_desc_decoded);
 
         putseparator = 1;
-        //putchar('\n');
     }
 
     if(putseparator){
@@ -1309,8 +1403,8 @@ static void add_die_to_tree(die_t *current, int level){
         }
     }
 
-    // write_tabs(level);
-    // describe_die_internal(current, level);
+     //write_tabs(level);
+     //describe_die_internal(current, level);
 }
 
 static void die_free(Dwarf_Debug dbg, die_t *die, int critical){
@@ -1525,21 +1619,6 @@ void die_tree_free(Dwarf_Debug dbg, die_t *die, int level){
     }
 }
 
-int die_get_name(die_t *die, char **dienameout, sym_error_t *e){
-    if(!die){
-        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
-        return 1;
-    }
-
-    if(!dienameout){
-        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
-        return 1;
-    }
-
-    *dienameout = die->die_diename;
-    return 0;
-}
-
 int die_get_high_pc(die_t *die, uint64_t *highpcout, sym_error_t *e){
     if(!die){
         errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
@@ -1673,6 +1752,21 @@ int die_get_low_pc(die_t *die, uint64_t *lowpcout, sym_error_t *e){
     }
 
     *lowpcout = die->die_low_pc;
+    return 0;
+}
+
+int die_get_name(die_t *die, char **dienameout, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    if(!dienameout){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    *dienameout = die->die_diename;
     return 0;
 }
 

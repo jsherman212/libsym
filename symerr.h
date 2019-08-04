@@ -21,7 +21,6 @@ enum {
     GE_INVALID_CU_POINTER,
     GE_INVALID_DWARFINFO,
     GE_INVALID_DIE
-
 };
 
 enum {

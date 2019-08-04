@@ -58,8 +58,11 @@ static void write_tabs(int cnt){
 #define RESET "\033[39m"
 
 #define YELLOW_BG "\033[43m"
+#define GREEN_BG "\033[42m"
+#define RED_BG "\033[41m"
 #define BLUE_BG "\033[44m"
 #define WHITE_BG "\033[107m"
+#define MAGENTA_BG "\033[45m"
 #define LIGHT_YELLOW_BG "\033[103m"
 #define LIGHT_RED_BG "\033[101m"
 #define LIGHT_GREEN_BG "\033[102m"
