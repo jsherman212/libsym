@@ -104,10 +104,11 @@ int sym_find_die_by_name(void *cu, const char *name, void **dieout,
         return 1;
 
     void *result = NULL;
-    die_search(root_die, (void *)name, DIE_SEARCH_IF_NAME_MATCHES, &result);
+    int ret = die_search(root_die, (void *)name, DIE_SEARCH_IF_NAME_MATCHES,
+            &result, e);
 
     *dieout = result;
-    return 0;
+    return ret;
 }
 
 int sym_find_function_die_by_pc(void *cu, uint64_t pc, void **dieout,
@@ -117,26 +118,28 @@ int sym_find_function_die_by_pc(void *cu, uint64_t pc, void **dieout,
         return 1;
 
     void *result = NULL;
-    die_search(root_die, (void *)pc, DIE_SEARCH_FUNCTION_BY_PC, &result);
+    int ret = die_search(root_die, (void *)pc, DIE_SEARCH_FUNCTION_BY_PC,
+            &result, e);
 
     *dieout = result;
-    return 0;
+    return ret;
 }
 
-char *sym_get_die_name(void *die){
-    return die_get_name(die);
+int sym_get_die_name(void *die, char **dienameout, sym_error_t *e){
+    return die_get_name(die, dienameout, e);
 }
 
-uint64_t sym_get_die_high_pc(void *die){
-    return die_get_high_pc(die);
+int sym_get_die_high_pc(void *die, uint64_t *highpcout, sym_error_t *e){
+    return die_get_high_pc(die, highpcout, e);
 }
 
-uint64_t sym_get_die_low_pc(void *die){
-    return die_get_low_pc(die);
+int sym_get_die_low_pc(void *die, uint64_t *lowpcout, sym_error_t *e){
+    return die_get_low_pc(die, lowpcout, e);
 }
 
-void **sym_get_function_die_parameters(void *die, int *len){
-    return die_get_parameters(die, len);
+int sym_get_function_die_parameters(void *die, void ***paramsout,
+        int *lenout, sym_error_t *e){
+    return die_get_parameters(die, paramsout, lenout, e);
 }
 
 int sym_get_variable_dies(dwarfinfo_t *dwarfinfo, uint64_t pc,
@@ -149,9 +152,7 @@ int sym_get_variable_dies(dwarfinfo_t *dwarfinfo, uint64_t pc,
     if(sym_find_function_die_by_pc(cu, pc, &fxndie, e))
         return 1;
 
-    die_get_variables(dwarfinfo->di_dbg, fxndie, vardies, len);
-
-    return 0;
+    return die_get_variables(dwarfinfo->di_dbg, fxndie, vardies, len, e);
 }
 
 int sym_get_line_info_from_pc(dwarfinfo_t *dwarfinfo, uint64_t pc,
@@ -165,8 +166,8 @@ int sym_get_line_info_from_pc(dwarfinfo_t *dwarfinfo, uint64_t pc,
     if(cu_get_root_die(cu, &root_die, e))
         return 1;
 
-    die_get_line_info_from_pc(dwarfinfo->di_dbg, root_die, pc,
-            outsrcfilename, outsrcfunction, outsrcfilelineno);
+    int ret = die_get_line_info_from_pc(dwarfinfo->di_dbg, root_die, pc,
+            outsrcfilename, outsrcfunction, outsrcfilelineno, e);
 
     *cudieout = root_die;
     return 0;
@@ -182,10 +183,11 @@ int sym_get_pc_of_next_line(dwarfinfo_t *dwarfinfo, uint64_t pc,
     if(cu_get_root_die(cu, &root_die, e))
         return 1;
 
-    die_get_pc_of_next_line_a(dwarfinfo->di_dbg, root_die, pc, next_line_pc);
+    int ret = die_get_pc_of_next_line(dwarfinfo->di_dbg, root_die, pc,
+            next_line_pc, e);
 
     *cudieout = root_die;
-    return 0;
+    return ret;
 }
 
 int sym_get_pc_values_from_lineno(dwarfinfo_t *dwarfinfo, void *cu,
@@ -200,7 +202,7 @@ int sym_get_pc_values_from_lineno(dwarfinfo_t *dwarfinfo, void *cu,
         return 1;
 
     return die_get_pc_values_from_lineno(dwarfinfo->di_dbg, root_die, lineno,
-            pcs, len);
+            pcs, len, e);
 }
 
 int sym_lineno_to_pc_a(dwarfinfo_t *dwarfinfo,
@@ -214,8 +216,8 @@ int sym_lineno_to_pc_a(dwarfinfo_t *dwarfinfo,
     if(cu_get_root_die(cu, &root_die, e))
         return 1;
 
-    *pcout = die_lineno_to_pc(dwarfinfo->di_dbg, root_die, srcfilelineno);
-    return 0;
+    return die_lineno_to_pc(dwarfinfo->di_dbg, root_die, srcfilelineno,
+            pcout, e);
 }
 
 int sym_lineno_to_pc_b(dwarfinfo_t *dwarfinfo, void *cu,
@@ -224,8 +226,8 @@ int sym_lineno_to_pc_b(dwarfinfo_t *dwarfinfo, void *cu,
     if(cu_get_root_die(cu, &root_die, e))
         return 1;
 
-    *pcout = die_lineno_to_pc(dwarfinfo->di_dbg, root_die, srcfilelineno);
-    return 0;
+    return die_lineno_to_pc(dwarfinfo->di_dbg, root_die, srcfilelineno,
+            pcout, e);
 }
 
 int sym_pc_to_lineno_a(dwarfinfo_t *dwarfinfo, uint64_t pc,
@@ -238,7 +240,7 @@ int sym_pc_to_lineno_a(dwarfinfo_t *dwarfinfo, uint64_t pc,
     if(cu_get_root_die(cu, &root_die, e))
         return 1;
 
-    return die_pc_to_lineno(dwarfinfo->di_dbg, root_die, pc, srcfilelineno);
+    return die_pc_to_lineno(dwarfinfo->di_dbg, root_die, pc, srcfilelineno, e);
 }
 
 int sym_pc_to_lineno_b(dwarfinfo_t *dwarfinfo, void *cu, uint64_t pc,
@@ -247,7 +249,7 @@ int sym_pc_to_lineno_b(dwarfinfo_t *dwarfinfo, void *cu, uint64_t pc,
     if(cu_get_root_die(cu, &root_die, e))
         return 1;
 
-    return die_pc_to_lineno(dwarfinfo->di_dbg, root_die, pc, srcfilelineno);
+    return die_pc_to_lineno(dwarfinfo->di_dbg, root_die, pc, srcfilelineno, e);
 }
 
 const char *sym_strerror(sym_error_t e){

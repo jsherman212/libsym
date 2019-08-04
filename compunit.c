@@ -29,7 +29,8 @@ int cu_display_compilation_units(dwarfinfo_t *dwarfinfo, sym_error_t *e){
     LL_FOREACH(dwarfinfo->di_compunits, current){
         compunit_t *cu = current->data;
 
-        char *cuname = die_get_name(cu->cu_root_die);
+        char *cuname = NULL;
+        die_get_name(cu->cu_root_die, &cuname, NULL);
 
         printf("Compilation unit %d/%d:\n"
                 "\tcu_header_len: %#llx\n"
@@ -61,7 +62,8 @@ int cu_find_compilation_unit_by_name(dwarfinfo_t *dwarfinfo,
     LL_FOREACH(dwarfinfo->di_compunits, current){
         compunit_t *cu = current->data;
 
-        char *cuname = die_get_name(cu->cu_root_die);
+        char *cuname = NULL;
+        die_get_name(cu->cu_root_die, &cuname, NULL);
 
         if(strcmp(cuname, name) == 0){
             *cuout = cu;
@@ -88,10 +90,11 @@ int cu_find_compilation_unit_by_pc(dwarfinfo_t *dwarfinfo,
     LL_FOREACH(dwarfinfo->di_compunits, current){
         compunit_t *cu = current->data;
 
-        Dwarf_Unsigned root_die_low_pc = die_get_low_pc(cu->cu_root_die);
-        Dwarf_Unsigned root_die_high_pc = die_get_high_pc(cu->cu_root_die);
+        Dwarf_Unsigned lpc = 0, hpc = 0;
+        die_get_low_pc(cu->cu_root_die, &lpc, NULL);
+        die_get_high_pc(cu->cu_root_die, &hpc, NULL);
         
-        if(pc >= root_die_low_pc && pc < root_die_high_pc){
+        if(pc >= lpc && pc < hpc){
             *cuout = cu;
             return 0;
         }
@@ -162,19 +165,13 @@ int cu_load_compilation_units(dwarfinfo_t *dwarfinfo, sym_error_t *e){
         }
 
         void *root_die = NULL;
-        char *error = malloc(1);
-        *error = '\0';
-        initialize_and_build_die_tree_from_root_die(dwarfinfo, cu,
-                &root_die, &error);
-        
-        /*
-        if(*error){
+        if(initialize_and_build_die_tree_from_root_die(dwarfinfo, cu,
+                &root_die, e)){
             free(cu);
             return 1;
-        }*/
+        }
 
         cu->cu_root_die = root_die;
-
         linkedlist_add(dwarfinfo->di_compunits, cu);
 
         dwarfinfo->di_numcompunits++;

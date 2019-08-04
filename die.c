@@ -8,6 +8,7 @@
 #include "common.h"
 #include "compunit.h"
 #include "dexpr.h"
+#include "symerr.h"
 
 typedef struct die die_t;
 
@@ -85,8 +86,8 @@ struct die {
     int die_dwarfdieneedsfree;
 };
 
-void die_search(die_t *, void *, int, die_t **);
-int die_pc_to_lineno(Dwarf_Debug, die_t *, uint64_t, uint64_t *);
+int die_search(die_t *, void *, int, die_t **, sym_error_t *);
+int die_pc_to_lineno(Dwarf_Debug, die_t *, uint64_t, uint64_t *, sym_error_t *);
 
 // XXX if this DIE represents a struct or union. is aggregate the right word?
 static int is_aggregate_type(Dwarf_Half tag){
@@ -1524,18 +1525,34 @@ void die_tree_free(Dwarf_Debug dbg, die_t *die, int level){
     }
 }
 
-char *die_get_name(die_t *die){
-    if(!die)
-        return NULL;
+int die_get_name(die_t *die, char **dienameout, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
 
-    return die->die_diename;
+    if(!dienameout){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    *dienameout = die->die_diename;
+    return 0;
 }
 
-uint64_t die_get_high_pc(die_t *die){
-    if(!die)
-        return 0;
+int die_get_high_pc(die_t *die, uint64_t *highpcout, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
 
-    return die->die_high_pc;
+    if(!highpcout){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    *highpcout = die->die_high_pc;
+    return 0;
 }
 
 static char *get_dwarf_line_filename(Dwarf_Debug dbg, Dwarf_Line line){
@@ -1589,11 +1606,19 @@ static Dwarf_Addr get_dwarf_line_virtual_addr(Dwarf_Debug dbg, Dwarf_Line line){
     return lineaddr;
 }
 
-void die_get_line_info_from_pc(Dwarf_Debug dbg, die_t *die, uint64_t pc,
-        char **srcfilename, char **srcfunction, uint64_t *srclineno){
+int die_get_line_info_from_pc(Dwarf_Debug dbg, die_t *die, uint64_t pc,
+        char **srcfilename, char **srcfunction, uint64_t *srclineno,
+        sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
     /* Not a compilation unit DIE */
-    if(!die || !die->die_srclines)
-        return;
+    if(die->die_tag != DW_TAG_compile_unit){
+        errset(e, DIE_ERROR_KIND, DIE_NOT_COMPILE_UNIT_DIE);
+        return 1;
+    }
 
     for(Dwarf_Signed i=0; i<die->die_srclinescnt; i++){
         Dwarf_Line line = die->die_srclines[i];
@@ -1616,32 +1641,57 @@ void die_get_line_info_from_pc(Dwarf_Debug dbg, die_t *die, uint64_t pc,
             *srclineno = get_dwarf_line_lineno(dbg, line);
 
             die_t *fxndie = NULL;
-            die_search(die, (void *)pc, DIE_SEARCH_FUNCTION_BY_PC, &fxndie);
+            int ret = die_search(die, (void *)pc, DIE_SEARCH_FUNCTION_BY_PC,
+                    &fxndie, e);
 
-            // XXX concat(outbuffer...
-            if(!fxndie){
-                dprintf("Couldn't find function DIE with pc %#llx????\n", pc);
-                return;
+            if(ret){
+                free(*srcfilename);
+                *srcfilename = NULL;
+                *srclineno = 0;
+                return 1;
             }
 
             *srcfunction = strdup(fxndie->die_diename);
 
-            return;
+            return 0;
         }
     }
+
+    errset(e, DIE_ERROR_KIND, DIE_COULD_NOT_GET_LINE_INFO);
+    return 1;
 }
 
-uint64_t die_get_low_pc(die_t *die){
-    if(!die)
-        return 0;
+int die_get_low_pc(die_t *die, uint64_t *lowpcout, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
 
-    return die->die_low_pc;
+    if(!lowpcout){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    *lowpcout = die->die_low_pc;
+    return 0;
 }
 
-die_t **die_get_parameters(die_t *die, int *len){
-    /* not a function DIE */
-    if(!die || die->die_tag != DW_TAG_subprogram)
-        return NULL;
+int die_get_parameters(die_t *die, die_t ***paramsout, int *lenout,
+        sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    if(die->die_tag != DW_TAG_subprogram){
+        errset(e, DIE_ERROR_KIND, DIE_NOT_FUNCTION_DIE);
+        return 1;
+    }
+
+    if(!paramsout || !lenout){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
 
     /* We don't have to recurse farther down the DIE chain,
      * parameters will be direct descendants.
@@ -1654,25 +1704,40 @@ die_t **die_get_parameters(die_t *die, int *len){
 
     while(child){
         if(child->die_tag == DW_TAG_formal_parameter){
-            die_t **params_rea = realloc(params, sizeof(die_t) * ++(*len));
+            die_t **params_rea = realloc(params, sizeof(die_t) * ++(*lenout));
             params = params_rea;
-            params[(*len) - 1] = child;
+            params[(*lenout)- 1] = child;
         }
 
         child = die->die_children[++idx];
     }
 
-    return params;
+    *paramsout = params;
+    return 0;
 }
 
-void die_get_pc_of_next_line_a(Dwarf_Debug dbg, die_t *die, uint64_t start_pc, uint64_t *next_line_pc){
-    if(!die || !die->die_srclines || !next_line_pc)
-        return;
+int die_get_pc_of_next_line(Dwarf_Debug dbg, die_t *die,
+        uint64_t start_pc, uint64_t *next_line_pc, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    /* Not a compilation unit DIE */
+    if(die->die_tag != DW_TAG_compile_unit){
+        errset(e, DIE_ERROR_KIND, DIE_NOT_COMPILE_UNIT_DIE);
+        return 1;
+    }
+
+    if(!next_line_pc){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
 
     uint64_t next_line = 0, start_pc_lineno = 0;
 
-    if(die_pc_to_lineno(dbg, die, start_pc, &start_pc_lineno))
-        return;
+    if(die_pc_to_lineno(dbg, die, start_pc, &start_pc_lineno, e))
+        return 1;
 
     Dwarf_Unsigned prevlineno = start_pc_lineno;
 
@@ -1682,8 +1747,10 @@ void die_get_pc_of_next_line_a(Dwarf_Debug dbg, die_t *die, uint64_t start_pc, u
         Dwarf_Unsigned curlineaddr = get_dwarf_line_virtual_addr(dbg, line);
         Dwarf_Unsigned curlineno = get_dwarf_line_lineno(dbg, line);
 
-        if(curlineaddr <= start_pc || curlineno == 0 || start_pc_lineno == curlineno)
+        if(curlineaddr <= start_pc || curlineno == 0 ||
+                start_pc_lineno == curlineno){
             continue;
+        }
         
         uint64_t current = llabs((int64_t)(next_line - start_pc));
         uint64_t diff = llabs((int64_t)(curlineaddr - start_pc));
@@ -1694,14 +1761,22 @@ void die_get_pc_of_next_line_a(Dwarf_Debug dbg, die_t *die, uint64_t start_pc, u
         prevlineno = curlineno;
     }
 
-    // XXX if this is still 0, next line's PC wasn't found
+    /* If this is still 0, the next line's PC wasn't found. */
+    if(next_line == 0){
+        errset(e, DIE_ERROR_KIND, DIE_NEXT_LINE_NOT_FOUND);
+        return 1;
+    }
+
     *next_line_pc = next_line;
+    return 0;
 }
 
 int die_get_pc_values_from_lineno(Dwarf_Debug dbg, die_t *die,
-        uint64_t lineno, uint64_t **pcs, int *len){
-    if(!pcs || !len)
+        uint64_t lineno, uint64_t **pcs, int *len, sym_error_t *e){
+    if(!pcs || !len){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
         return 1;
+    }
 
     *pcs = malloc(sizeof(uint64_t));
     (*pcs)[0] = 0;
@@ -1754,9 +1829,22 @@ int die_get_variables(Dwarf_Debug dbg, die_t *die, die_t ***vardies,
     return 0;
 }
 
-uint64_t die_lineno_to_pc(Dwarf_Debug dbg, die_t *die, uint64_t *lineno){
-    if(!die || !die->die_srclines || !lineno)
-        return 0;
+int die_lineno_to_pc(Dwarf_Debug dbg, die_t *die, uint64_t *lineno,
+        uint64_t *pcout, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    if(die->die_tag != DW_TAG_compile_unit){
+        errset(e, DIE_ERROR_KIND, DIE_NOT_COMPILE_UNIT_DIE);
+        return 1;
+    }
+
+    if(!lineno || !pcout){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
 
     /* Find the closest line to lineno. Sometimes the source file does
      * not accurately reflect the compiled program.
@@ -1774,26 +1862,42 @@ uint64_t die_lineno_to_pc(Dwarf_Debug dbg, die_t *die, uint64_t *lineno){
         uint64_t diff = llabs((int64_t)(curlineno - linepassedin));
 
         /* exact match */
-        if(diff == 0)
-            return get_dwarf_line_virtual_addr(dbg, line);
+        if(diff == 0){
+            *pcout = get_dwarf_line_virtual_addr(dbg, line);
+            return 0;
+        }
         else if(diff < current){
             closestlineno = curlineno;
             closestline = line;
         }
     }
 
-    // XXX concat(outbuffer...
+    // XXX concat(outbuffer, ...
     printf("Line %lld doesn't exist, auto-adjusted to line %lld\n",
             linepassedin, closestlineno);
+
+    *pcout = get_dwarf_line_virtual_addr(dbg, closestline);
     *lineno = closestlineno;
 
-    return get_dwarf_line_virtual_addr(dbg, closestline);
+    return 0;
 }
 
 int die_pc_to_lineno(Dwarf_Debug dbg, die_t *die, uint64_t target_pc,
-        uint64_t *lineno){
-    if(!die || !die->die_srclines || !lineno)
+        uint64_t *lineno, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
         return 1;
+    }
+
+    if(die->die_tag != DW_TAG_compile_unit){
+        errset(e, DIE_ERROR_KIND, DIE_NOT_COMPILE_UNIT_DIE);
+        return 1;
+    }
+
+    if(!lineno){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
 
     /* If we're given a PC to match against, we should match exactly. */
     for(Dwarf_Signed i=0; i<die->die_srclinescnt; i++){
@@ -1801,7 +1905,7 @@ int die_pc_to_lineno(Dwarf_Debug dbg, die_t *die, uint64_t target_pc,
         Dwarf_Unsigned curlineaddr = get_dwarf_line_virtual_addr(dbg, line);
         //Dwarf_Unsigned curlineno = get_dwarf_line_lineno(dbg, line);
 
-       // dprintf("line %lld @ %#llx\n", curlineno, curlineaddr);
+        // dprintf("line %lld @ %#llx\n", curlineno, curlineaddr);
 
         if(target_pc == curlineaddr){
             *lineno = get_dwarf_line_lineno(dbg, line);
@@ -1809,6 +1913,7 @@ int die_pc_to_lineno(Dwarf_Debug dbg, die_t *die, uint64_t target_pc,
         }
     }
 
+    errset(e, DIE_ERROR_KIND, DIE_LINE_NOT_FOUND);
     return 1;
 }
 
@@ -1844,7 +1949,8 @@ static void die_search_internal(die_t *die, void *data,
     }
 }
 
-void die_search(die_t *start, void *data, int way, die_t **out){
+int die_search(die_t *start, void *data, int way, die_t **out,
+        sym_error_t *e){
     int (*comparefxn)(die_t *, void *) = NULL;
 
     if(way == DIE_SEARCH_IF_NAME_MATCHES)
@@ -1853,20 +1959,26 @@ void die_search(die_t *start, void *data, int way, die_t **out){
         comparefxn = die_is_func_in_range;
 
     die_search_internal(start, data, comparefxn, out);
+
+    if(!(*out)){
+        errset(e, DIE_ERROR_KIND, DIE_DIE_NOT_FOUND);
+        return 1;
+    }
+    
+    return 0;
 }
 
 int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
-        void *compile_unit, die_t **_root_die, char **error){
+        void *compile_unit, die_t **_root_die, sym_error_t *e){
     int is_info = 1;
     Dwarf_Error d_error = NULL;
-
     Dwarf_Die cu_rootdie = NULL;
+
     int ret = dwarf_siblingof_b(dwarfinfo->di_dbg, NULL, is_info,
             &cu_rootdie, &d_error);
 
     if(ret == DW_DLV_ERROR){
-        asprintf(error, "dwarf_siblingof_b: %s",
-                dwarf_errmsg_by_number(ret));
+        errset(e, SYM_ERROR_KIND, SYM_DWARF_SIBLING_OF_B_FAILED);
         return 1;
     }
 
@@ -1879,9 +1991,13 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
 
     construct_die_tree(dwarfinfo, compile_unit, root_die, NULL, root_die, 0);
 
-    if(dwarf_srclines(root_die->die_dwarfdie, &root_die->die_srclines,
-                &root_die->die_srclinescnt, &d_error)){
-        printf("dwarf_srclines: %s\n", dwarf_errmsg_by_number(dwarf_errno(d_error)));
+    ret = dwarf_srclines(root_die->die_dwarfdie, &root_die->die_srclines,
+            &root_die->die_srclinescnt, &d_error);
+    
+    if(ret == DW_DLV_ERROR){
+        dwarf_dealloc(dwarfinfo->di_dbg, d_error, DW_DLA_ERROR);
+        errset(e, SYM_ERROR_KIND, SYM_DWARF_SRCLINES_FAILED);
+        return 1;
     }
 
     printf("output of display_die_tree:\n\n");

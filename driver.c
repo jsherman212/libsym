@@ -170,7 +170,12 @@ int main(int argc, char **argv, const char **envp){
                             break;
                         }
 
-                        char *name = sym_get_die_name(comp_root_die);
+                        char *name = NULL;
+                        if(sym_get_die_name(comp_root_die, &name, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
 
                         printf("\n%s:%lld: %#llx\n\n", name, lineno, pc);
 
@@ -451,7 +456,13 @@ int main(int argc, char **argv, const char **envp){
                         }
 
                         if(current_die){
-                            char *name = sym_get_die_name(current_die);
+                            char *name = NULL;
+                            if(sym_get_die_name(current_die, &name, &sym_error)){
+                                printf("error: %s\n", sym_strerror(sym_error));
+                                errclear(&sym_error);
+                                break;
+                            }
+
                             printf("Selected die '%s'\n", name);
                         }
                         else{
@@ -483,8 +494,13 @@ int main(int argc, char **argv, const char **envp){
                         putchar('\n');
 
                         int len = 0;
-                        void **params =
-                            sym_get_function_die_parameters(current_die, &len);
+                        void **params = NULL;
+                        if(sym_get_function_die_parameters(current_die,
+                                    &params, &len, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
 
                         if(!params)
                             printf("Couldn't get parameters from the current DIE\n");

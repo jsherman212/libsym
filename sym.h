@@ -16,7 +16,7 @@
 int sym_init_with_dwarf_file(
         const char *    /* dSYM file path */, 
         void **         /* return dwarfinfo ptr */,
-        sym_error_t *   /* return error ptr */);
+        void *          /* return error ptr */);
 
 void sym_end(
         void **     /* dwarfinfo ptr */);
@@ -58,21 +58,29 @@ int sym_find_function_die_by_pc(
         void **     /* return die */,
         void *      /* return error ptr */);
 
-char *sym_get_die_name(
-        void *      /* die */);
+int sym_get_die_name(
+        void *      /* die */,
+        char **     /* return die name */,
+        void *      /* return error ptr */);
 
-uint64_t sym_get_die_high_pc(
-        void *      /* die */);
+int sym_get_die_high_pc(
+        void *      /* die */,
+        uint64_t *  /* return high pc */,
+        void *      /* return error ptr */);
 
-uint64_t sym_get_die_low_pc(
-        void *      /* die */);
+int sym_get_die_low_pc(
+        void *      /* die */,
+        uint64_t *  /* return low pc */,
+        void *      /* return error ptr */);
 
 /* Returns an array of parameter DIEs. Contents of the array must not
  * be freed, rather the array itself should be.
  */
-void **sym_get_function_die_parameters(
+int sym_get_function_die_parameters(
         void *      /* die */,
-        int *       /* numparams */);
+        void ***    /* return parameter array */,
+        int *       /* return parameter array length */,
+        void *      /* return error ptr */);
 
 /* This function will search for a function DIE, based on pc, and return
  * an array with DIEs tagged DW_TAG_variable.
