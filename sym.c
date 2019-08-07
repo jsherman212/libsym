@@ -125,8 +125,12 @@ int sym_find_function_die_by_pc(void *cu, uint64_t pc, void **dieout,
     return ret;
 }
 
-int sym_get_die_name(void *die, char **dienameout, sym_error_t *e){
-    return die_get_name(die, dienameout, e);
+int sym_get_die_array_elem_size(void *die, uint64_t *elemszout, sym_error_t *e){
+    return die_get_array_elem_size(die, elemszout, e);
+}
+
+int sym_get_die_encoding(void *die, uint64_t *encodingout, sym_error_t *e){
+    return die_get_encoding(die, encodingout, e);
 }
 
 int sym_get_die_high_pc(void *die, uint64_t *highpcout, sym_error_t *e){
@@ -135,6 +139,23 @@ int sym_get_die_high_pc(void *die, uint64_t *highpcout, sym_error_t *e){
 
 int sym_get_die_low_pc(void *die, uint64_t *lowpcout, sym_error_t *e){
     return die_get_low_pc(die, lowpcout, e);
+}
+
+int sym_get_die_name(void *die, char **dienameout, sym_error_t *e){
+    return die_get_name(die, dienameout, e);
+}
+
+int sym_get_die_represents_array(void *die, int *retval, sym_error_t *e){
+    return die_represents_array(die, retval, e);
+}
+
+int sym_get_die_represents_pointer(void *die, int *retval, sym_error_t *e){
+    return die_represents_pointer(die, retval, e);
+}
+
+int sym_get_die_represents_struct_or_union(void *die, int *retval,
+        sym_error_t *e){
+    return die_represents_struct_or_union(die, retval, e);
 }
 
 int sym_get_function_die_parameters(void *die, void ***paramsout,

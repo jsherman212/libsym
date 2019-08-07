@@ -58,9 +58,14 @@ int sym_find_function_die_by_pc(
         void **     /* return die */,
         void *      /* return error ptr */);
 
-int sym_get_die_name(
+int sym_get_die_array_elem_size(
         void *      /* die */,
-        char **     /* return die name */,
+        uint64_t *  /* return array member size */,
+        void *      /* return error ptr */);
+
+int sym_get_die_encoding(
+        void *      /* die */,
+        uint64_t *  /* return encoding */,
         void *      /* return error ptr */);
 
 int sym_get_die_high_pc(
@@ -73,8 +78,28 @@ int sym_get_die_low_pc(
         uint64_t *  /* return low pc */,
         void *      /* return error ptr */);
 
+int sym_get_die_name(
+        void *      /* die */,
+        char **     /* return die name */,
+        void *      /* return error ptr */);
+
+int sym_get_die_represents_array(
+        void *      /* die */,
+        int *       /* return value */,
+        void *      /* return error ptr */);
+
+int sym_get_die_represents_pointer(
+        void *      /* die */,
+        int *       /* return value */,
+        void *      /* return error ptr */);
+
+int sym_get_die_represents_struct_or_union(
+        void *      /* die */,
+        int *       /* return value */,
+        void *      /* return error ptr */);
+
 /* Returns an array of parameter DIEs. Contents of the array must not
- * be freed, rather the array itself should be.
+ * be freed, but the array itself should be.
  */
 int sym_get_function_die_parameters(
         void *      /* die */,

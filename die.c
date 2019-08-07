@@ -61,10 +61,12 @@ struct die {
     Dwarf_Half die_datatypeencoding;
     Dwarf_Unsigned die_databytessize;
     char *die_datatypename;
-    /* If we have an array, we need to know the size of the elements */
+    /* If we have an array, we need to know the size of each elements,
+     * not just the overall size of the array.
+     */
     Dwarf_Unsigned die_arrmembsz;
     /* Also, we have to know the encoding of the elements (DW_ATE_*) */
-    Dwarf_Half die_arrmembencoding;
+    //Dwarf_Half die_arrmembencoding;
     /* High level data type classification. Really, we are only interested
      * in if this data type DIE represents a pointer, struct, union,
      * array, or base type.
@@ -805,7 +807,7 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
         (*die)->die_datatypename = strdup(name);
         (*die)->die_datatypeencoding = base_die_encoding;
         (*die)->die_arrmembsz = arrmembsz;
-        (*die)->die_arrmembencoding = arrmembencoding;
+        //(*die)->die_arrmembencoding = arrmembencoding;
         (*die)->die_datatypeclass = classification;
     }
 
@@ -1102,18 +1104,15 @@ static int does_die_represent_what(die_t *die, int *retval, int what,
     return 0;
 }
 
-static int does_die_represent_pointer(die_t *die, int *retval,
-        sym_error_t *e){
+int die_represents_pointer(die_t *die, int *retval, sym_error_t *e){
     return does_die_represent_what(die, retval, PTR, e);
 }
 
-static int does_die_represent_struct_or_union(die_t *die, int *retval,
-        sym_error_t *e){
+int die_represents_struct_or_union(die_t *die, int *retval, sym_error_t *e){
     return does_die_represent_what(die, retval, STRUCT_OR_UNION, e);
 }
 
-static int does_die_represent_array(die_t *die, int *retval,
-        sym_error_t *e){
+int die_represents_array(die_t *die, int *retval, sym_error_t *e){
     return does_die_represent_what(die, retval, ARRAY, e);
 }
 
@@ -1617,6 +1616,36 @@ void die_tree_free(Dwarf_Debug dbg, die_t *die, int level){
         free(die->die_children);
         die->die_children = NULL;
     }
+}
+
+int die_get_array_elem_size(die_t *die, uint64_t *elemszout, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    if(!elemszout){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    *elemszout = die->die_arrmembsz;
+    return 0;
+}
+
+int die_get_encoding(die_t *die, uint64_t *encodingout, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    if(!encodingout){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    *encodingout = die->die_datatypeencoding;
+    return 0;
 }
 
 int die_get_high_pc(die_t *die, uint64_t *highpcout, sym_error_t *e){
