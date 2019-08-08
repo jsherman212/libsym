@@ -97,6 +97,11 @@ void sym_display_die_tree_starting_from(void *die){
     die_display_die_tree_starting_from(die);
 }
 
+int sym_evaluate_die_location_description(void *die, uint64_t pc,
+        uint64_t *resultout, sym_error_t *e){
+    return die_evaluate_location_description(die, pc, resultout, e);
+}
+
 int sym_find_die_by_name(void *cu, const char *name, void **dieout,
         sym_error_t *e){
     void *root_die = NULL;
@@ -129,6 +134,10 @@ int sym_get_die_array_elem_size(void *die, uint64_t *elemszout, sym_error_t *e){
     return die_get_array_elem_size(die, elemszout, e);
 }
 
+int sym_get_die_data_type_str(void *die, char **datatypeout, sym_error_t *e){
+    return die_get_data_type_str(die, datatypeout, e);
+}
+
 int sym_get_die_encoding(void *die, uint64_t *encodingout, sym_error_t *e){
     return die_get_encoding(die, encodingout, e);
 }
@@ -139,6 +148,11 @@ int sym_get_die_high_pc(void *die, uint64_t *highpcout, sym_error_t *e){
 
 int sym_get_die_low_pc(void *die, uint64_t *lowpcout, sym_error_t *e){
     return die_get_low_pc(die, lowpcout, e);
+}
+
+int sym_get_die_members(void *die, void ***membersout, int *membersarrlen,
+        sym_error_t *e){
+    return die_get_members(die, membersout, membersarrlen, e);
 }
 
 int sym_get_die_name(void *die, char **dienameout, sym_error_t *e){

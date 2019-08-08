@@ -35,7 +35,9 @@ static const char *const DIE_ERROR_TABLE[] = {
     "Error getting line info (3 - die error)",
     "Not a compilation unit DIE (4 - die error)",
     "Next line not found (5 - die error)",
-    "Line not found (6 - die error)"
+    "Line not found (6 - die error)",
+    "No data type name (7 - die error)",
+    "Not a struct or union DIE (8 - die error)"
 };
 
 static const size_t NO_ERROR_TABLE_LEN = sizeof(NO_ERROR_TABLE) / sizeof(const char *);

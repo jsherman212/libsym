@@ -20,7 +20,7 @@ struct dwarf_locdesc {
     struct dwarf_locdesc *locdesc_next;
 };
 
-static int is_locdesc_in_bounds(struct dwarf_locdesc *locdesc,
+int is_locdesc_in_bounds(struct dwarf_locdesc *locdesc,
         uint64_t pc){
     if(!locdesc->locdesc_bounded)
         return 1;
@@ -480,15 +480,7 @@ static char *evaluate_frame_base(struct dwarf_locdesc *framebaselocdesc){
 // XXX TODO when added inside iosdbg, this will not create a string for my expression
 // evaluator, will return a computed location
 char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
-        struct dwarf_locdesc *locdesc, uint64_t pc){
-    /*
-    if(!locdesc)
-        return strdup("error: NULL locdesc");
-    */
-    /*
-    if(!is_locdesc_in_bounds(locdesc, pc))
-        return strdup("error: PC out of bounds");
-    */
+        struct dwarf_locdesc *locdesc, uint64_t pc, uint64_t *resultout){
     char exprstr[1024] = {0};
 
     /* 512 to support extreme operands of DW_OP_pick */
@@ -1041,6 +1033,7 @@ done:
         break;
     }
 
+    *resultout = stack[sp];
     //dprintf("Top stack value: %ld", stack[sp]);
 
     return strdup(exprstr);

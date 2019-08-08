@@ -61,7 +61,7 @@ struct die {
     Dwarf_Half die_datatypeencoding;
     Dwarf_Unsigned die_databytessize;
     char *die_datatypename;
-    /* If we have an array, we need to know the size of each elements,
+    /* If we have an array, we need to know the size of each element,
      * not just the overall size of the array.
      */
     Dwarf_Unsigned die_arrmembsz;
@@ -75,6 +75,7 @@ struct die {
 
     /* If this DIE represents a structure or a union, the following is
      * initialized.
+     * XXX get rid of this, children are not yet connected
      */
     die_t *die_structoruniontypedie;
 
@@ -1269,8 +1270,11 @@ static void describe_die_internal(die_t *die, int level){
 
                 printf(GREEN"---"RESET);
 
+                uint64_t result = 0;
+
                 char *loc_desc_decoded =
-                    decode_location_description(die->die_framebaselocdesc, current, pc);
+                    decode_location_description(die->die_framebaselocdesc,
+                            current, pc, &result);
                 printf(" Decoded: '%s'\n", loc_desc_decoded);
                 free(loc_desc_decoded);
             }
@@ -1299,8 +1303,10 @@ static void describe_die_internal(die_t *die, int level){
 
         printf(GREEN"---"RESET);
 
+        uint64_t result = 0;
         char *loc_desc_decoded =
-            decode_location_description(die->die_framebaselocdesc, die->die_framebaselocdesc, pc);
+            decode_location_description(die->die_framebaselocdesc,
+                    die->die_framebaselocdesc, pc, &result);
         printf(" Decoded: '%s'\n", loc_desc_decoded);
         free(loc_desc_decoded);
 
@@ -1618,6 +1624,34 @@ void die_tree_free(Dwarf_Debug dbg, die_t *die, int level){
     }
 }
 
+int die_evaluate_location_description(die_t *die, uint64_t pc,
+        uint64_t *resultout, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    if(!resultout){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    /* Iterate over all the location lists until we find the right one. */
+    for(Dwarf_Signed i=0; i<die->die_loclistcnt; i++){
+        void *current = die->die_loclists[i];
+
+        if(current && !is_locdesc_in_bounds(current, pc))
+            continue;
+
+        char *s = decode_location_description(die->die_framebaselocdesc,
+                current, pc, resultout);
+        free(s);
+        break;
+    }
+
+    return 0;
+}
+
 int die_get_array_elem_size(die_t *die, uint64_t *elemszout, sym_error_t *e){
     if(!die){
         errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
@@ -1630,6 +1664,27 @@ int die_get_array_elem_size(die_t *die, uint64_t *elemszout, sym_error_t *e){
     }
 
     *elemszout = die->die_arrmembsz;
+    return 0;
+}
+
+int die_get_data_type_str(die_t *die, char **datatypeout, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    if(!datatypeout){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    if(!die->die_datatypename){
+        errset(e, DIE_ERROR_KIND, DIE_NO_DATA_TYPE_NAME);
+        return 1;
+    }
+
+    strncpy(*datatypeout, die->die_datatypename, strlen(die->die_datatypename));
+
     return 0;
 }
 
@@ -1784,6 +1839,54 @@ int die_get_low_pc(die_t *die, uint64_t *lowpcout, sym_error_t *e){
     return 0;
 }
 
+int die_get_members(die_t *die, die_t ***membersout, int *len,
+        sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    if(!membersout || !len){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    die_t *target = die;
+    Dwarf_Half tag = die->die_tag;
+
+    // XXX children won't be initialized for this pointer,
+    // later add functionality to search for a DIE in the tree
+    // based off its offset
+    if(tag != DW_TAG_structure_type && tag != DW_TAG_union_type){
+        target = die->die_structoruniontypedie;
+
+        if(!target){
+            errset(e, DIE_ERROR_KIND, DIE_NOT_STRUCT_OR_UNION);
+            return 1;
+        }
+    }
+
+    die_t **members = malloc(sizeof(die_t));
+    members[0] = NULL;
+
+    int idx = 0;
+    die_t *child = target->die_children[idx];
+
+    while(child){
+        if(child->die_tag == DW_TAG_member){
+            die_t **members_rea = realloc(members, sizeof(die_t) * ++(*len));
+            members = members_rea;
+            members[(*len) - 1] = child;
+        }
+
+        child = die->die_children[++idx];
+    }
+
+    *membersout = members;
+
+    return 0;
+}
+
 int die_get_name(die_t *die, char **dienameout, sym_error_t *e){
     if(!die){
         errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
@@ -1829,7 +1932,7 @@ int die_get_parameters(die_t *die, die_t ***paramsout, int *lenout,
         if(child->die_tag == DW_TAG_formal_parameter){
             die_t **params_rea = realloc(params, sizeof(die_t) * ++(*lenout));
             params = params_rea;
-            params[(*lenout)- 1] = child;
+            params[(*lenout) - 1] = child;
         }
 
         child = die->die_children[++idx];

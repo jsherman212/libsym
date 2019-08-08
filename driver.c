@@ -45,6 +45,7 @@ int main(int argc, char **argv, const char **envp){
         CHOICE_FIND_FUNCTION_DIE_BY_PC,
         CHOICE_DISPLAY_CURRENT_DIE,
         CHOICE_GET_PARAMETERS_FROM_DIE,
+        CHOICE_GET_STRUCT_OR_UNION_MEMBERS_FROM_DIE,
         CHOICE_RESET_CURRENT_DIE,
         CHOICE_DISPLAY_COMPILATION_UNIT_MENU
     };
@@ -386,8 +387,9 @@ int main(int argc, char **argv, const char **envp){
                     "2. Find a function DIE via an arbitrary PC\n"
                     "3. Display DIE tree of current DIE\n"
                     "4. Display parameters of current DIE\n"
-                    "5. Reset current DIE\n"
-                    "6. Display compilation unit menu\n");
+                    "5. Get struct or union members of current DIE\n"
+                    "6. Reset current DIE\n"
+                    "7. Display compilation unit menu\n");
 
             int choice = 0;
             scanf("%d", &choice);
@@ -512,6 +514,31 @@ int main(int argc, char **argv, const char **envp){
                         }
 
                         printf("\n%d parameters\n\n", len);
+
+                        break;
+                    }
+                case CHOICE_GET_STRUCT_OR_UNION_MEMBERS_FROM_DIE:
+                    {
+                        if(!current_die){
+                            printf("No DIE selected\n\n");
+                            break;
+                        }
+
+                        int len = 0;
+                        void **members = NULL;
+                        if(sym_get_die_members(current_die, &members, &len,
+                                    &sym_error)){
+                            printf("error: %s\n\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
+
+                        for(int i=0; i<len; i++)
+                            sym_display_die(members[i]);
+
+                        free(members);
+
+                        putchar('\n');
 
                         break;
                     }

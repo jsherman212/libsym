@@ -46,6 +46,12 @@ void sym_display_die(
 void sym_display_die_tree_starting_from(
         void *      /* die */);
 
+int sym_evaluate_die_location_description(
+        void *      /* die */,
+        uint64_t    /* pc */,
+        uint64_t *  /* return result */,
+        void *      /* return error ptr */);
+
 int sym_find_die_by_name(
         void *          /* compilation unit */,
         const char *    /* name */,
@@ -60,7 +66,12 @@ int sym_find_function_die_by_pc(
 
 int sym_get_die_array_elem_size(
         void *      /* die */,
-        uint64_t *  /* return array member size */,
+        uint64_t *  /* return array elem size */,
+        void *      /* return error ptr */);
+
+int sym_get_die_data_type_str(
+        void *      /* die */,
+        char **     /* return data type string */,
         void *      /* return error ptr */);
 
 int sym_get_die_encoding(
@@ -76,6 +87,17 @@ int sym_get_die_high_pc(
 int sym_get_die_low_pc(
         void *      /* die */,
         uint64_t *  /* return low pc */,
+        void *      /* return error ptr */);
+
+/* Returns an array of member DIEs from a parent struct or union DIE.
+ * If the DIE passed in does not represent a struct or union,
+ * the die_structoruniondie field is checked, and if not NULL, followed.
+ * The contents of the array must not be freed.
+ */
+int sym_get_die_members(
+        void *      /* die */,
+        void ***    /* return member array */,
+        int *       /* return member array len */,
         void *      /* return error ptr */);
 
 int sym_get_die_name(
@@ -99,7 +121,7 @@ int sym_get_die_represents_struct_or_union(
         void *      /* return error ptr */);
 
 /* Returns an array of parameter DIEs. Contents of the array must not
- * be freed, but the array itself should be.
+ * be freed.
  */
 int sym_get_function_die_parameters(
         void *      /* die */,
