@@ -150,9 +150,13 @@ int sym_get_die_low_pc(void *die, uint64_t *lowpcout, sym_error_t *e){
     return die_get_low_pc(die, lowpcout, e);
 }
 
-int sym_get_die_members(void *die, void ***membersout, int *membersarrlen,
-        sym_error_t *e){
-    return die_get_members(die, membersout, membersarrlen, e);
+int sym_get_die_members(void *die, void *cu, void ***membersout,
+        int *membersarrlen, sym_error_t *e){
+    void *root_die = NULL;
+    if(cu_get_root_die(cu, &root_die, e))
+        return 1;
+
+    return die_get_members(die, root_die, membersout, membersarrlen, e);
 }
 
 int sym_get_die_name(void *die, char **dienameout, sym_error_t *e){
@@ -170,6 +174,10 @@ int sym_get_die_represents_pointer(void *die, int *retval, sym_error_t *e){
 int sym_get_die_represents_struct_or_union(void *die, int *retval,
         sym_error_t *e){
     return die_represents_struct_or_union(die, retval, e);
+}
+
+int sym_get_die_variable_size(void *die, uint64_t *sizeout, sym_error_t *e){
+    return die_get_variable_size(die, sizeout, e);
 }
 
 int sym_get_function_die_parameters(void *die, void ***paramsout,

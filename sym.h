@@ -35,7 +35,7 @@ int sym_find_compilation_unit_by_name(
 
 int sym_get_compilation_unit_root_die(
         void *      /* compilation unit */,
-        void **     /* reutrn root DIE */,
+        void **     /* return root DIE */,
         void *      /* return error ptr */);
 
 
@@ -91,13 +91,18 @@ int sym_get_die_low_pc(
 
 /* Returns an array of member DIEs from a parent struct or union DIE.
  * If the DIE passed in does not represent a struct or union,
- * the die_structoruniondie field is checked, and if not NULL, followed.
- * The contents of the array must not be freed.
+ * the DIE tree is searched starting from the compilation unit root DIE.
  */
 int sym_get_die_members(
         void *      /* die */,
+        void *      /* compilation unit ptr */,
         void ***    /* return member array */,
         int *       /* return member array len */,
+        void *      /* return error ptr */);
+
+int sym_get_die_member_offset(
+        void *      /* die */,
+        uint64_t *  /* return member offset */,
         void *      /* return error ptr */);
 
 int sym_get_die_name(
@@ -118,6 +123,11 @@ int sym_get_die_represents_pointer(
 int sym_get_die_represents_struct_or_union(
         void *      /* die */,
         int *       /* return value */,
+        void *      /* return error ptr */);
+
+int sym_get_die_variable_size(
+        void *      /* die */,
+        uint64_t *  /* return size */,
         void *      /* return error ptr */);
 
 /* Returns an array of parameter DIEs. Contents of the array must not

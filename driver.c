@@ -526,7 +526,9 @@ int main(int argc, char **argv, const char **envp){
 
                         int len = 0;
                         void **members = NULL;
-                        if(sym_get_die_members(current_die, &members, &len,
+                        if(sym_get_die_members(current_die,
+                                    current_compile_unit,
+                                    &members, &len,
                                     &sym_error)){
                             printf("error: %s\n\n", sym_strerror(sym_error));
                             errclear(&sym_error);

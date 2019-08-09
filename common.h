@@ -31,7 +31,8 @@ typedef struct {
 
 enum {
     DIE_SEARCH_IF_NAME_MATCHES,
-    DIE_SEARCH_FUNCTION_BY_PC
+    DIE_SEARCH_FUNCTION_BY_PC,
+    DIE_SEARCH_IF_DIE_OFFSET_MATCHES
 };
 
 static void write_spaces(int count){
