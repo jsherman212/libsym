@@ -139,6 +139,11 @@ int sym_get_function_die_parameters(
         int *       /* return parameter array length */,
         void *      /* return error ptr */);
 
+int sym_get_parent_of_die(
+        void *      /* die */,
+        void **     /* return parent DIE */,
+        void *      /* return error ptr */);
+
 /* This function will search for a function DIE, based on pc, and return
  * an array with DIEs tagged DW_TAG_variable.
  */
@@ -147,6 +152,11 @@ int sym_get_variable_dies(
         uint64_t    /* pc */,
         void ***    /* return array of variable DIEs */,
         int *       /* return array of variable DIEs len */,
+        void *      /* return error ptr */);
+
+int sym_is_die_a_member_of_struct_or_union(
+        void *      /* die */,
+        int *       /* return value */,
         void *      /* return error ptr */);
 
 

@@ -185,6 +185,10 @@ int sym_get_function_die_parameters(void *die, void ***paramsout,
     return die_get_parameters(die, paramsout, lenout, e);
 }
 
+int sym_get_parent_of_die(void *die, void **parentout, sym_error_t *e){
+    return die_get_parent(die, parentout, e);
+}
+
 int sym_get_variable_dies(dwarfinfo_t *dwarfinfo, uint64_t pc,
         void ***vardies, int *len, sym_error_t *e){
     void *cu = NULL;
@@ -196,6 +200,11 @@ int sym_get_variable_dies(dwarfinfo_t *dwarfinfo, uint64_t pc,
         return 1;
 
     return die_get_variables(dwarfinfo->di_dbg, fxndie, vardies, len, e);
+}
+
+int sym_is_die_a_member_of_struct_or_union(void *die, int *retval,
+        sym_error_t *e){
+    return die_is_member_of_struct_or_union(die, retval, e);
 }
 
 int sym_get_line_info_from_pc(dwarfinfo_t *dwarfinfo, uint64_t pc,

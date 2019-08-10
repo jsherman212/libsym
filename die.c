@@ -1923,6 +1923,21 @@ int die_get_parameters(die_t *die, die_t ***paramsout, int *lenout,
     return 0;
 }
 
+int die_get_parent(die_t *die, die_t **parentout, sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    if(!parentout){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    *parentout = die->die_parent;
+    return 0;
+}
+
 int die_get_pc_of_next_line(Dwarf_Debug dbg, die_t *die,
         uint64_t start_pc, uint64_t *next_line_pc, sym_error_t *e){
     if(!die){
@@ -2048,6 +2063,31 @@ int die_get_variable_size(die_t *die, uint64_t *sizeout, sym_error_t *e){
     }
 
     *sizeout = die->die_databytessize;
+    return 0;
+}
+
+int die_is_member_of_struct_or_union(die_t *die, int *retval,
+        sym_error_t *e){
+    if(!die){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_DIE);
+        return 1;
+    }
+
+    if(!die->die_parent){
+        errset(e, DIE_ERROR_KIND, DIE_NO_PARENT);
+        return 1;
+    }
+
+    if(!retval){
+        errset(e, GENERIC_ERROR_KIND, GE_INVALID_PARAMETER);
+        return 1;
+    }
+
+    Dwarf_Half t = die->die_tag, tp = die->die_parent->die_tag;
+
+    *retval = t == DW_TAG_member && (tp == DW_TAG_structure_type ||
+            tp == DW_TAG_union_type);
+
     return 0;
 }
 
