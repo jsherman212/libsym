@@ -382,12 +382,6 @@ static char *get_register_name(Dwarf_Half op){
 void add_additional_location_description(Dwarf_Half whichattr,
         struct dwarf_locdesc **locs, struct dwarf_locdesc *add,
         int idx){
-    if(whichattr != DW_AT_location){
-        dprintf("called with whichattr %#x\n", whichattr);
-        // XXX
-        abort();
-    }
-
     struct dwarf_locdesc *current = locs[idx];
 
     while(current->locdesc_next)
@@ -461,7 +455,7 @@ void *create_location_description(Dwarf_Small loclist_source,
             op, opd1, opd2, opd3, offsetforbranch);
 }
 
-// XXX returns the register DW_AT_frame_base represents
+/* Returns the register DW_AT_frame_base represents */
 static char *evaluate_frame_base(struct dwarf_locdesc *framebaselocdesc){
     Dwarf_Small op = framebaselocdesc->locdesc_op;
 
@@ -494,7 +488,6 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
         Dwarf_Unsigned opd1 = ld->locdesc_opd1,
                        opd2 = ld->locdesc_opd2,
                        opd3 = ld->locdesc_opd3;
-        //dprintf("op '%s'\n", get_op_name(ld->locdesc_op));
 
         char operatorbuf[64] = {0};
         char operandbuf[64] = {0};
@@ -569,12 +562,6 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
                 }
             case DW_OP_constu:
                 {
-                    /* TODO: figure out if the operands are still encoded after
-                     * calling dwarf_get_location_op_value_c. Because
-                     * DW_OP_fbreg's documentation says its first operand is
-                     * a signed LEB128 offset from a register, but after
-                     * testing, it turns out to be a normal number
-                     */
                     snprintf(operandbuf, sizeof(operandbuf), "%lld", (uint64_t)opd1);
                     stack[++sp] = (uint64_t)opd1;
 
@@ -1025,7 +1012,6 @@ char *decode_location_description(struct dwarf_locdesc *framebaselocdesc,
 
         strcat(exprstr, operatorbuf);
         strcat(exprstr, operandbuf);
-        //strcat(exprstr, " ");
 
         ld = ld->locdesc_next;
         continue;
@@ -1034,7 +1020,6 @@ done:
     }
 
     *resultout = stack[sp];
-    //dprintf("Top stack value: %ld", stack[sp]);
 
     return strdup(exprstr);
 }

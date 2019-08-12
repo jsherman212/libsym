@@ -134,6 +134,11 @@ int sym_get_die_array_elem_size(void *die, uint64_t *elemszout, sym_error_t *e){
     return die_get_array_elem_size(die, elemszout, e);
 }
 
+int sym_get_die_array_size_determined_at_runtime(void *die, int *retval,
+        sym_error_t *e){
+    return die_get_array_size_determined_at_runtime(die, retval, e);
+}
+
 int sym_get_die_data_type_str(void *die, char **datatypeout, sym_error_t *e){
     return die_get_data_type_str(die, datatypeout, e);
 }

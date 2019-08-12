@@ -69,6 +69,11 @@ int sym_get_die_array_elem_size(
         uint64_t *  /* return array elem size */,
         void *      /* return error ptr */);
 
+int sym_get_die_array_size_determined_at_runtime(
+        void *      /* die */,
+        int *       /* return retval */,
+        void *      /* return error ptr */);
+
 int sym_get_die_data_type_str(
         void *      /* die */,
         char **     /* return data type string */,

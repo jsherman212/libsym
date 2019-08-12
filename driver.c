@@ -46,6 +46,7 @@ int main(int argc, char **argv, const char **envp){
         CHOICE_DISPLAY_CURRENT_DIE,
         CHOICE_GET_PARAMETERS_FROM_DIE,
         CHOICE_GET_STRUCT_OR_UNION_MEMBERS_FROM_DIE,
+        CHOICE_EVAL_DIE_LOCDESC,
         CHOICE_RESET_CURRENT_DIE,
         CHOICE_DISPLAY_COMPILATION_UNIT_MENU
     };
@@ -388,8 +389,9 @@ int main(int argc, char **argv, const char **envp){
                     "3. Display DIE tree of current DIE\n"
                     "4. Display parameters of current DIE\n"
                     "5. Get struct or union members of current DIE\n"
-                    "6. Reset current DIE\n"
-                    "7. Display compilation unit menu\n");
+                    "6. Evalutate this DIE's location description\n"
+                    "7. Reset current DIE\n"
+                    "8. Display compilation unit menu\n");
 
             int choice = 0;
             scanf("%d", &choice);
@@ -541,6 +543,29 @@ int main(int argc, char **argv, const char **envp){
                         free(members);
 
                         putchar('\n');
+
+                        break;
+                    }
+                case CHOICE_EVAL_DIE_LOCDESC:
+                    {
+                        if(!current_die){
+                            printf("No DIE selected\n\n");
+                            break;
+                        }
+
+                        uint64_t pc = 0;
+                        printf("\nEnter PC: ");
+                        scanf("%llx", &pc);
+
+                        uint64_t result = 0;
+                        if(sym_evaluate_die_location_description(current_die,
+                                    pc, &result, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
+
+                        printf("\n\nResult: %#llx\n", result);
 
                         break;
                     }

@@ -5,6 +5,7 @@ void die_display(void *);
 void die_display_die_tree_starting_from(void *);
 int die_evaluate_location_description(void *, uint64_t, uint64_t *, void *);
 int die_get_array_elem_size(void *, uint64_t *, void *);
+int die_get_array_size_determined_at_runtime(void *, int *, void *);
 int die_get_data_type_str(void *, char **, void *);
 int die_get_encoding(void *, uint64_t *, void *);
 int die_get_high_pc(void *, uint64_t *, void *);
