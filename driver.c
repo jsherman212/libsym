@@ -34,6 +34,7 @@ int main(int argc, char **argv, const char **envp){
         CHOICE_GET_LINE_INFO_FROM_PC,
         CHOICE_GET_LINE_AFTER_PC,
         CHOICE_GET_VARIABLE_DIES_AROUND_PC,
+        CHOICE_DESCRIBE_ALL_VARIABLES_IN_CU,
         CHOICE_DISPLAY_DIE_MENU,
         CHOICE_QUIT
     };
@@ -47,6 +48,7 @@ int main(int argc, char **argv, const char **envp){
         CHOICE_GET_PARAMETERS_FROM_DIE,
         CHOICE_GET_STRUCT_OR_UNION_MEMBERS_FROM_DIE,
         CHOICE_EVAL_DIE_LOCDESC,
+        CHOICE_DESCRIBE_VARIABLE,
         CHOICE_RESET_CURRENT_DIE,
         CHOICE_DISPLAY_COMPILATION_UNIT_MENU
     };
@@ -69,8 +71,9 @@ int main(int argc, char **argv, const char **envp){
                     "8. Get line info from an arbitrary PC\n"
                     "9. Starting from an arbitrary PC, get the PC of the line right after\n"
                     "10. Display variables from a function, given an arbitrary PC\n"
-                    "11. Display DIE menu\n"
-                    "12. Quit\n");
+                    "11. Describle all variable/parameter DIEs around an arbitrary PC\n"
+                    "12. Display DIE menu\n"
+                    "13. Quit\n");
             int choice = 0;
             scanf("%d", &choice);
 
@@ -360,6 +363,90 @@ int main(int argc, char **argv, const char **envp){
 
                         break;
                     }
+                case CHOICE_DESCRIBE_ALL_VARIABLES_IN_CU:
+                    {
+                        if(!current_compile_unit){
+                            printf("No compile unit selected\n\n");
+                            break;
+                        }
+
+                        uint64_t pc = 0;
+                        printf("\nEnter PC: ");
+                        scanf("%llx", &pc);
+
+                        printf("\n\n");
+
+                        void **paramdies = NULL;
+                        void *fxndie = NULL;
+                        int plen = 0;
+
+                        if(sym_find_function_die_by_pc(current_compile_unit,
+                                    pc, &fxndie, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
+
+                        if(sym_get_function_die_parameters(fxndie,
+                                    &paramdies, &plen, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
+
+                        for(int i=0; i<plen; i++){
+                            char *desc = malloc(20000);
+                            *desc = '\0';
+                            if(sym_display_variable_die(paramdies[i],
+                                        current_compile_unit, &desc,
+                                        &sym_error)){
+                                printf("error: %s\n", sym_strerror(sym_error));
+                                errclear(&sym_error);
+                                break;
+                            }
+
+                            printf("%s\n", desc);
+                            free(desc);
+                        }
+
+                        free(paramdies);
+
+                        void **vardies = NULL;
+                        int len = 0;
+
+                        if(sym_get_variable_dies(dwarfinfo, pc,
+                                    &vardies, &len, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
+
+                        if(len == 0){
+                            printf("No variable DIEs around PC %#llx\n\n", pc);
+                            break;
+                        }
+
+                        for(int i=0; i<len; i++){
+                            char *desc = malloc(20000);
+                            *desc = '\0';
+
+                            if(sym_display_variable_die(vardies[i],
+                                        current_compile_unit, &desc,
+                                        &sym_error)){
+                                printf("error: %s\n", sym_strerror(sym_error));
+                                errclear(&sym_error);
+                                break;
+                            }
+
+                            printf("%s\n", desc);
+                            free(desc);
+                        }
+
+                        free(vardies);
+                        printf("\n\n");
+
+                        break;
+                    }
                 case CHOICE_DISPLAY_DIE_MENU:
                     {
                         if(!current_compile_unit){
@@ -390,8 +477,9 @@ int main(int argc, char **argv, const char **envp){
                     "4. Display parameters of current DIE\n"
                     "5. Get struct or union members of current DIE\n"
                     "6. Evalutate this DIE's location description\n"
-                    "7. Reset current DIE\n"
-                    "8. Display compilation unit menu\n");
+                    "7. Describe this variable DIE\n"
+                    "8. Reset current DIE\n"
+                    "9. Display compilation unit menu\n");
 
             int choice = 0;
             scanf("%d", &choice);
@@ -566,6 +654,30 @@ int main(int argc, char **argv, const char **envp){
                         }
 
                         printf("\n\nResult: %#llx\n", result);
+
+                        break;
+                    }
+                case CHOICE_DESCRIBE_VARIABLE:
+                    {
+                        if(!current_die){
+                            printf("No DIE selected\n\n");
+                            break;
+                        }
+
+                        char *desc = calloc(8000, 1);
+                        //*desc = '\0';
+                        //char *desc = NULL;
+                        //char desc[20000] = {0};
+
+                        if(sym_display_variable_die(current_die, &desc,
+                                    current_compile_unit, &sym_error)){
+                            printf("error: %s\n", sym_strerror(sym_error));
+                            errclear(&sym_error);
+                            break;
+                        }
+
+                        printf("Description:\n\n'%s'\n\n", desc);
+                        free(desc);
 
                         break;
                     }

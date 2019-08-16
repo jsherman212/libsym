@@ -97,6 +97,15 @@ void sym_display_die_tree_starting_from(void *die){
     die_display_die_tree_starting_from(die);
 }
 
+int sym_display_variable_die(void *die, void *cu, char **desc, sym_error_t *e){
+    // XXX error checking
+    void *root_die = NULL;
+    if(cu_get_root_die(cu, &root_die, e))
+        return 1;
+
+    return die_display_variable(die, root_die, desc, e, 0);
+}
+
 int sym_evaluate_die_location_description(void *die, uint64_t pc,
         uint64_t *resultout, sym_error_t *e){
     return die_evaluate_location_description(die, pc, resultout, e);

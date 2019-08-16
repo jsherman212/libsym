@@ -38,7 +38,8 @@ static const char *const DIE_ERROR_TABLE[] = {
     "Line not found (6 - die error)",
     "No data type name (7 - die error)",
     "Not a struct or union DIE (8 - die error)",
-    "No parent (9 - die error)"
+    "No parent (9 - die error)",
+    "Not a variable (10 - die error)"
 };
 
 static const size_t NO_ERROR_TABLE_LEN = sizeof(NO_ERROR_TABLE) / sizeof(const char *);

@@ -46,6 +46,12 @@ void sym_display_die(
 void sym_display_die_tree_starting_from(
         void *      /* die */);
 
+int sym_display_variable_die(
+        void *      /* die */,
+        void *      /* compliation unit */,
+        char **     /* return description */,
+        void *      /* return error ptr */);
+
 int sym_evaluate_die_location_description(
         void *      /* die */,
         uint64_t    /* pc */,
