@@ -185,9 +185,14 @@ int sym_get_die_represents_pointer(void *die, int *retval, sym_error_t *e){
     return die_represents_pointer(die, retval, e);
 }
 
-int sym_get_die_represents_struct_or_union(void *die, int *retval,
+int sym_get_die_represents_struct(void *die, int *retval,
         sym_error_t *e){
-    return die_represents_struct_or_union(die, retval, e);
+    return die_represents_struct(die, retval, e);
+}
+
+int sym_get_die_represents_union(void *die, int *retval,
+        sym_error_t *e){
+    return die_represents_union(die, retval, e);
 }
 
 int sym_get_die_variable_size(void *die, uint64_t *sizeout, sym_error_t *e){

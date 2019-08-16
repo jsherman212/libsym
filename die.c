@@ -14,9 +14,10 @@ typedef struct die die_t;
 
 enum {
     DTC_POINTER =           (1 << 0),
-    DTC_STRUCT_OR_UNION =   (1 << 1),
-    DTC_ARRAY =             (1 << 2),
-    DTC_OTHER =             (1 << 3)
+    DTC_STRUCT =            (1 << 1),
+    DTC_UNION =             (1 << 2),
+    DTC_ARRAY =             (1 << 3),
+    DTC_OTHER =             (1 << 4)
 };
 
 #define ARR_DIM_SZ_UNKNOWN ((unsigned)-1)
@@ -79,7 +80,7 @@ struct die {
      * in if this data type DIE represents a pointer, struct, union,
      * array, or base type.
      */
-    unsigned int die_datatypeclass : 4;
+    unsigned int die_datatypeclass : 5;
 
     /* If this DIE represents an inlined subroutine, the following
      * two are initialized.
@@ -441,8 +442,11 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             }
         }
 
-        if(die_tag == DW_TAG_structure_type || die_tag == DW_TAG_union_type)
-            *classification |= DTC_STRUCT_OR_UNION;
+        if(die_tag == DW_TAG_structure_type)
+            *classification |= DTC_STRUCT;
+
+        if(die_tag == DW_TAG_union_type)
+            *classification |= DTC_UNION;
 
         if(die_name)
             strlcat(outtype, die_name, maxlen);
@@ -767,9 +771,8 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
 
     unsigned int c = classification;
 
-    if(!(c & DTC_POINTER) && !(c & DTC_STRUCT_OR_UNION) &&
-            !(c & DTC_ARRAY)){
-        //printf("*****other\n");
+    if(!(c & DTC_POINTER) && !(c & DTC_STRUCT) &&
+            !(c & DTC_UNION) && !(c & DTC_ARRAY)){
         classification |= DTC_OTHER;
     }
     (*die)->die_datatypeclass = classification;
@@ -997,7 +1000,7 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
 }
 
 enum {
-    PTR, STRUCT_OR_UNION, ARRAY
+    PTR, STRUCT, UNION, ARRAY
 };
 
 static int does_die_represent_what(die_t *die, int *retval, int what,
@@ -1014,24 +1017,30 @@ static int does_die_represent_what(die_t *die, int *retval, int what,
 
     if(what == PTR)
         *retval = die->die_datatypeclass & DTC_POINTER;
-    else if(what == STRUCT_OR_UNION)
-        *retval = die->die_datatypeclass & DTC_STRUCT_OR_UNION;
+    else if(what == STRUCT)
+        *retval = die->die_datatypeclass & DTC_STRUCT;
+    else if(what == UNION)
+        *retval = die->die_datatypeclass & DTC_UNION;
     else if(what == ARRAY)
         *retval = die->die_datatypeclass & DTC_ARRAY;
 
     return 0;
 }
 
+int die_represents_array(die_t *die, int *retval, sym_error_t *e){
+    return does_die_represent_what(die, retval, ARRAY, e);
+}
+
 int die_represents_pointer(die_t *die, int *retval, sym_error_t *e){
     return does_die_represent_what(die, retval, PTR, e);
 }
 
-int die_represents_struct_or_union(die_t *die, int *retval, sym_error_t *e){
-    return does_die_represent_what(die, retval, STRUCT_OR_UNION, e);
+int die_represents_struct(die_t *die, int *retval, sym_error_t *e){
+    return does_die_represent_what(die, retval, STRUCT, e);
 }
 
-int die_represents_array(die_t *die, int *retval, sym_error_t *e){
-    return does_die_represent_what(die, retval, ARRAY, e);
+int die_represents_union(die_t *die, int *retval, sym_error_t *e){
+    return does_die_represent_what(die, retval, UNION, e);
 }
 
 static Dwarf_Half die_has_children(Dwarf_Die die){
@@ -1078,12 +1087,14 @@ static void describe_die_internal(die_t *die, int level){
             printf(", data type encoding = "WHITE_BG""BLACK"%s"RESET""RESET_BG, e);
         int c = die->die_datatypeclass;
         int ptr = c & DTC_POINTER;
-        int soru = c & DTC_STRUCT_OR_UNION;
+        int s = c & DTC_STRUCT;
+        int u = c & DTC_UNION;
         int a = c & DTC_ARRAY;
         int none = c & DTC_OTHER;//(!ptr && !soru && !a);
-        printf(", %s%sPOINTER%s%s %s%sSTRUCT OR UNION%s%s %s%sARRAY%s%s %s%sOTHER%s%s",
+        printf(", %s%sPOINTER%s%s %s%sSTRUCT%s%s %s%sUNION%s%s %s%sARRAY%s%s %s%sOTHER%s%s",
                 ptr?GREEN_BG:RED_BG, ptr?BLACK:"", RESET, RESET_BG,
-                soru?GREEN_BG:RED_BG, soru?BLACK:"", RESET, RESET_BG,
+                s?GREEN_BG:RED_BG, s?BLACK:"", RESET, RESET_BG,
+                u?GREEN_BG:RED_BG, u?BLACK:"", RESET, RESET_BG,
                 a?GREEN_BG:RED_BG, a?BLACK:"", RESET, RESET_BG,
                 none?GREEN_BG:RED_BG, none?BLACK:"", RESET, RESET_BG);
     }
@@ -1539,14 +1550,24 @@ int die_display_variable(die_t *die, void *cu_root_die, char **desc,
         return 0;
 
     if(!(die->die_datatypeclass & DTC_POINTER)){
-        if(die->die_datatypeclass & DTC_STRUCT_OR_UNION){
+        if(die->die_datatypeclass & DTC_STRUCT ||
+                die->die_datatypeclass & DTC_UNION){
             die_t **members = NULL;
             int len = 0;
 
             die_get_members(die, cu_root_die, &members, &len, e);
 
+            char *typename = die->die_datatypename;
+            
+            if(*typename == '\0'){
+                if(die->die_datatypeclass & DTC_STRUCT)
+                    typename = "(anonymous struct)";
+                else
+                    typename = "(anonymous union)";
+            }
+
             snprintf(&(*desc)[strlen(*desc)], dlen, "%*s(%s) %s = {\n",
-                    indent, "", die->die_datatypename, die->die_diename);
+                    indent, "", typename, die->die_diename);
 
             for(int i=0; i<len; i++){
                 die_display_variable(members[i], cu_root_die, desc,

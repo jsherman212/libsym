@@ -28,7 +28,8 @@ int die_lineno_to_pc(void *, void *, uint64_t *, uint64_t *, void *);
 int die_pc_to_lineno(void *, void *, uint64_t, uint64_t *, void *);
 int die_represents_array(void *, int *, void *);
 int die_represents_pointer(void *, int *, void *);
-int die_represents_struct_or_union(void *, int *, void *);
+int die_represents_struct(void *, int *, void *);
+int die_represents_union(void *, int *, void *);
 int die_search(void *, void *, int, void **, void *);
 void die_tree_free(void *, void *, int);
 

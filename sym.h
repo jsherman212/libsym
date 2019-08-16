@@ -131,7 +131,12 @@ int sym_get_die_represents_pointer(
         int *       /* return value */,
         void *      /* return error ptr */);
 
-int sym_get_die_represents_struct_or_union(
+int sym_get_die_represents_struct(
+        void *      /* die */,
+        int *       /* return value */,
+        void *      /* return error ptr */);
+
+int sym_get_die_represents_union(
         void *      /* die */,
         int *       /* return value */,
         void *      /* return error ptr */);
