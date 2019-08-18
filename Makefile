@@ -1,9 +1,9 @@
 CC=clang
-CFLAGS=-fno-pie -g -fsanitize=address -pedantic -Wno-gnu-zero-variadic-macro-arguments -Wno-gnu-case-range
+CFLAGS=-fno-pie -g -pedantic -Wno-gnu-zero-variadic-macro-arguments -Wno-gnu-case-range
 LDFLAGS=-ldwarf -lelf -lz
 
-driver : driver.o sym.o linkedlist.o compunit.o die.o dexpr.o symerr.o
-	$(CC) $(CFLAGS) $(LDFLAGS) driver.o sym.o linkedlist.o compunit.o die.o dexpr.o symerr.o -o driver
+driver : driver.o sym.o linkedlist.o compunit.o die.o dexpr.o symerr.o str.o
+	$(CC) $(CFLAGS) $(LDFLAGS) driver.o sym.o linkedlist.o compunit.o die.o dexpr.o symerr.o str.o -o driver
 
 driver.o : driver.c
 	$(CC) $(CFLAGS) driver.c -c
@@ -25,3 +25,6 @@ dexpr.o : dexpr.c dexpr.h
 
 symerr.o : symerr.c symerr.h
 	$(CC) $(CFLAGS) symerr.c -c
+
+str.o : str.c str.h
+	$(CC) $(CFLAGS) str.c -c

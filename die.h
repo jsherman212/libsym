@@ -1,9 +1,10 @@
 #ifndef _DIE_H_
 #define _DIE_H_
 
+int die_create_variable_or_parameter_desc(void *, void *, char **,
+        void *, int);
 void die_display(void *);
 void die_display_die_tree_starting_from(void *);
-int die_display_variable(void *, void *, char **, void *, int);
 int die_evaluate_location_description(void *, uint64_t, uint64_t *, void *);
 int die_get_array_elem_size(void *, uint64_t *, void *);
 int die_get_array_size_determined_at_runtime(void *, int *, void *);

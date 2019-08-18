@@ -89,21 +89,21 @@ int sym_get_compilation_unit_root_die(void *cu, void **dieout,
     return cu_get_root_die(cu, dieout, e);
 }
 
+int sym_create_variable_or_parameter_die_desc(void *die, void *cu,
+        char **desc, sym_error_t *e){
+    void *root_die = NULL;
+    if(cu_get_root_die(cu, &root_die, e))
+        return 1;
+
+    return die_create_variable_or_parameter_desc(die, root_die, desc, e, 0);
+}
+
 void sym_display_die(void *die){
     die_display(die);
 }
 
 void sym_display_die_tree_starting_from(void *die){
     die_display_die_tree_starting_from(die);
-}
-
-int sym_display_variable_die(void *die, void *cu, char **desc, sym_error_t *e){
-    // XXX error checking
-    void *root_die = NULL;
-    if(cu_get_root_die(cu, &root_die, e))
-        return 1;
-
-    return die_display_variable(die, root_die, desc, e, 0);
 }
 
 int sym_evaluate_die_location_description(void *die, uint64_t pc,

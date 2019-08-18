@@ -395,11 +395,10 @@ int main(int argc, char **argv, const char **envp){
                         }
 
                         for(int i=0; i<plen; i++){
-                            char *desc = malloc(20000);
-                            *desc = '\0';
-                            if(sym_display_variable_die(paramdies[i],
-                                        current_compile_unit, &desc,
-                                        &sym_error)){
+                            char *desc = NULL;
+                            if(sym_create_variable_or_parameter_die_desc(
+                                        paramdies[i], current_compile_unit,
+                                        &desc, &sym_error)){
                                 printf("error: %s\n", sym_strerror(sym_error));
                                 errclear(&sym_error);
                                 break;
@@ -427,12 +426,11 @@ int main(int argc, char **argv, const char **envp){
                         }
 
                         for(int i=0; i<len; i++){
-                            char *desc = malloc(20000);
-                            *desc = '\0';
+                            char *desc = NULL;
 
-                            if(sym_display_variable_die(vardies[i],
-                                        current_compile_unit, &desc,
-                                        &sym_error)){
+                            if(sym_create_variable_or_parameter_die_desc(
+                                        vardies[i], current_compile_unit,
+                                        &desc, &sym_error)){
                                 printf("error: %s\n", sym_strerror(sym_error));
                                 errclear(&sym_error);
                                 break;
@@ -664,13 +662,9 @@ int main(int argc, char **argv, const char **envp){
                             break;
                         }
 
-                        char *desc = calloc(8000, 1);
-                        //*desc = '\0';
-                        //char *desc = NULL;
-                        //char desc[20000] = {0};
-
-                        if(sym_display_variable_die(current_die, &desc,
-                                    current_compile_unit, &sym_error)){
+                        char *desc = NULL;
+                        if(sym_create_variable_or_parameter_die_desc(current_die,
+                                    &desc, current_compile_unit, &sym_error)){
                             printf("error: %s\n", sym_strerror(sym_error));
                             errclear(&sym_error);
                             break;

@@ -40,17 +40,17 @@ int sym_get_compilation_unit_root_die(
 
 
 /* DIE related functions */
+int sym_create_variable_or_parameter_die_desc(
+        void *      /* die */,
+        void *      /* compliation unit */,
+        char **     /* return description */,
+        void *      /* return error ptr */);
+
 void sym_display_die(
         void *      /* die */);
 
 void sym_display_die_tree_starting_from(
         void *      /* die */);
-
-int sym_display_variable_die(
-        void *      /* die */,
-        void *      /* compliation unit */,
-        char **     /* return description */,
-        void *      /* return error ptr */);
 
 int sym_evaluate_die_location_description(
         void *      /* die */,
