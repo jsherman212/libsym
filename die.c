@@ -112,11 +112,6 @@ int die_get_members(die_t *, die_t *, die_t ***, int *, sym_error_t *);
 int die_pc_to_lineno(Dwarf_Debug, die_t *, uint64_t, uint64_t *, sym_error_t *);
 int die_search(die_t *, void *, int, die_t **, sym_error_t *);
 
-// XXX if this DIE represents a struct or union. is aggregate the right word?
-static int is_aggregate_type(Dwarf_Half tag){
-    return tag == DW_TAG_structure_type || tag == DW_TAG_union_type;
-}
-
 static int is_anonymous_type(die_t *die){
     return (die->die_tag == DW_TAG_structure_type ||
             die->die_tag == DW_TAG_union_type ||
@@ -291,8 +286,7 @@ static int get_die_attribute(Dwarf_Debug dbg, Dwarf_Die from,
 }
 
 enum {
-    FORMSDATA = 0,
-    FORMUDATA
+    FORMSDATA = 0, FORMUDATA
 };
 
 static int get_form_data_from_attr(Dwarf_Debug dbg, Dwarf_Attribute attr,
@@ -337,7 +331,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         Dwarf_Half *base_die_encoding, Dwarf_Unsigned *base_data_type_offset,
         Dwarf_Unsigned *arrmembsz, Dwarf_Half *arrmembencoding,
         unsigned int *classification, struct arrdim ***dims,
-        int *dimslen, int maxlen, int level){
+        int *dimslen, int level){
     char *die_name = get_die_name_raw(dbg, die);
     Dwarf_Half die_tag = get_die_tag_raw(dbg, die);
 
@@ -362,7 +356,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         generate_data_type_info(dbg, compile_unit, typedie,
                 outtype, outsize, base_tag, base_die, base_die_encoding,
                 base_data_type_offset, arrmembsz, arrmembencoding,
-                classification, dims, dimslen, maxlen, level+1);
+                classification, dims, dimslen, level+1);
 
         if(typedie != *base_die)
             dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
@@ -382,7 +376,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             generate_data_type_info(dbg, compile_unit, typedie,
                     outtype, outsize, base_tag, base_die, base_die_encoding,
                     base_data_type_offset, arrmembsz, arrmembencoding,
-                    classification, dims, dimslen, maxlen, level+1);
+                    classification, dims, dimslen, level+1);
 
             if(typedie != *base_die)
                 dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
@@ -402,7 +396,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
             generate_data_type_info(dbg, compile_unit, parameter_die,
                     outtype, outsize, base_tag, base_die, base_die_encoding,
                     base_data_type_offset, arrmembsz, arrmembencoding,
-                    classification, dims, dimslen, maxlen, level+1);
+                    classification, dims, dimslen, level+1);
 
             Dwarf_Die sibling_die = get_sibling_die(dbg, parameter_die);
 
@@ -414,7 +408,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
 
             parameter_die = sibling_die;
 
-            concat(outtype, ", ", maxlen);
+            concat(outtype, ", ");
         }
 
         concat(outtype, ")");
@@ -499,7 +493,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
     generate_data_type_info(dbg, compile_unit, typedie,
             outtype, outsize, base_tag, base_die, base_die_encoding,
             base_data_type_offset, arrmembsz, arrmembencoding,
-            classification, dims, dimslen, maxlen, level+1);
+            classification, dims, dimslen, level+1);
 
     if(typedie != *base_die)
         dwarf_dealloc(dbg, typedie, DW_DLA_DIE);
@@ -532,7 +526,7 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
                         &unused_base_die, &membencoding,
                         &unused_base_data_type_offset, arrmembsz,
                         arrmembencoding, classification, &dims_unused,
-                        &dimslen_unused, maxlen, level+1);
+                        &dimslen_unused, level+1);
 
                 free(unused_outtype);
 
@@ -645,11 +639,13 @@ static void generate_data_type_info(Dwarf_Debug dbg, void *compile_unit,
         if(replacelen < 0)
             replacelen = 0;
 
-        char *outtype_rea = realloc(*outtype, outtypelen + strlen(die_name));
+        size_t newlen = outtypelen + strlen(die_name);
+
+        char *outtype_rea = realloc(*outtype, newlen);
         *outtype = outtype_rea;
 
         memset(*outtype + replaceat, 0, replacelen * sizeof(char));
-        strlcat(*outtype + replaceat, die_name, maxlen);
+        strlcat(*outtype + replaceat, die_name, newlen);
 
         return;
     }
@@ -746,9 +742,6 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
          *          DW_TAG_pointer_type ->
          *              DW_TAG_base_type (char)
          */
-        enum { maxlen = 256 };
-
-        //char name[maxlen] = {0};
         char *name = NULL;
         Dwarf_Unsigned size = 0;
         Dwarf_Unsigned base_data_type_die_offset = 0;
@@ -762,7 +755,7 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
                 (*die)->die_datatypedie, &name, &size, &base_tag,
                 &base_die, &base_die_encoding, &base_data_type_die_offset,
                 &arrmembsz, &arrmembencoding, &classification,
-                &dims, &dimslen, maxlen, 0);
+                &dims, &dimslen, 0);
 
         if(IS_POINTER)
             classification |= DTC_POINTER;
@@ -770,7 +763,7 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
         IS_POINTER = 0;
 
         (*die)->die_databytessize = size;
-        (*die)->die_datatypename = name;//strdup(name);
+        (*die)->die_datatypename = name;
         (*die)->die_datatypeencoding = base_die_encoding;
         (*die)->die_basedatatypedieoffset = base_data_type_die_offset;
         (*die)->die_arrmembsz = arrmembsz;
@@ -784,6 +777,7 @@ static void get_die_data_type_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
             !(c & DTC_UNION) && !(c & DTC_ARRAY)){
         classification |= DTC_OTHER;
     }
+
     (*die)->die_datatypeclass = classification;
 }
 
@@ -923,8 +917,6 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
     if(ret == DW_DLV_ERROR)
         dwarf_dealloc(dbg, d_error, DW_DLA_ERROR);
 
-    // XXX: inside iosdbg get rid of this auto naming so I can test
-    // for NULL names for anonymous types
     if(is_anonymous_type(*die)){
         (*die)->die_anon = 1;
 
@@ -996,6 +988,7 @@ static int copy_die_info(dwarfinfo_t *dwarfinfo, void *compile_unit,
             &memb_attr);
 
     // XXX check for location list once expression evaluator is done
+    // will have to encounter this
     if(memb_attr)
         get_form_data_from_attr(dbg, memb_attr, &((*die)->die_memb_off), FORMUDATA);
 
@@ -1295,44 +1288,32 @@ static void add_die_to_tree(die_t *current, int level){
         return;
     }
 
+    die_t *parent = NULL;
+
     if(current->die_haschildren){
         CUR_PARENTS[level] = current;
-
-        die_t *parent = CUR_PARENTS[level - 1];
-
-        if(parent){
-            die_t **children = realloc(parent->die_children,
-                    (++parent->die_numchildren) * sizeof(die_t));
-            parent->die_children = children;
-            parent->die_children[parent->die_numchildren - 1] = current;
-            parent->die_children[parent->die_numchildren] = NULL;
-
-            current->die_parent = parent;
-        }
+        parent = CUR_PARENTS[level - 1];
     }
     else{
         int sub = 1;
-        die_t *parent = CUR_PARENTS[level - sub];
+        parent = CUR_PARENTS[level - sub];
 
         /* Find the closest valid parent. We could be multiple levels
          * deep without seeing `level` amount of parent DIEs.
          */
         while(!parent)
             parent = CUR_PARENTS[level - (++sub)];
-
-        if(parent){
-            die_t **children = realloc(parent->die_children,
-                    (++parent->die_numchildren) * sizeof(die_t));
-            parent->die_children = children;
-            parent->die_children[parent->die_numchildren - 1] = current;
-            parent->die_children[parent->die_numchildren] = NULL;
-
-            current->die_parent = parent;
-        }
     }
 
-     //write_tabs(level);
-     //describe_die_internal(current, level);
+    if(parent){
+        die_t **children = realloc(parent->die_children,
+                (++parent->die_numchildren) * sizeof(die_t));
+        parent->die_children = children;
+        parent->die_children[parent->die_numchildren - 1] = current;
+        parent->die_children[parent->die_numchildren] = NULL;
+
+        current->die_parent = parent;
+    }
 }
 
 static void die_free(Dwarf_Debug dbg, die_t *die, int critical){
@@ -1417,7 +1398,7 @@ static void die_free(Dwarf_Debug dbg, die_t *die, int critical){
  * we already have a target DIE.
  */
 static void construct_die_tree(dwarfinfo_t *dwarfinfo, void *compile_unit,
-        die_t *root, die_t *parent, die_t *current, int level){
+        die_t *current, int level){
     int is_info = 1;
     Dwarf_Die child_die = NULL, cur_die = current->die_dwarfdie;
     Dwarf_Die cur_die_backup = NULL;
@@ -1443,7 +1424,7 @@ static void construct_die_tree(dwarfinfo_t *dwarfinfo, void *compile_unit,
 
         if(ret == DW_DLV_OK){
             die_t *cd = create_new_die(dwarfinfo, compile_unit, child_die, level);
-            construct_die_tree(dwarfinfo, compile_unit, root, parent, cd, level+1);
+            construct_die_tree(dwarfinfo, compile_unit, cd, level+1);
         }
 
         Dwarf_Die sibling_die = NULL;
@@ -2194,9 +2175,6 @@ int die_pc_to_lineno(Dwarf_Debug dbg, die_t *die, uint64_t target_pc,
     for(Dwarf_Signed i=0; i<die->die_srclinescnt; i++){
         Dwarf_Line line = die->die_srclines[i];
         Dwarf_Unsigned curlineaddr = get_dwarf_line_virtual_addr(dbg, line);
-        //Dwarf_Unsigned curlineno = get_dwarf_line_lineno(dbg, line);
-
-        // dprintf("line %lld @ %#llx\n", curlineno, curlineaddr);
 
         if(target_pc == curlineaddr){
             *lineno = get_dwarf_line_lineno(dbg, line);
@@ -2286,7 +2264,7 @@ int initialize_and_build_die_tree_from_root_die(dwarfinfo_t *dwarfinfo,
      //if(strcmp(root_die->die_diename, "source/cmd/memcmd.c") != 0)
        //return 0;
 
-    construct_die_tree(dwarfinfo, compile_unit, root_die, NULL, root_die, 0);
+    construct_die_tree(dwarfinfo, compile_unit, root_die, 0);
 
     ret = dwarf_srclines(root_die->die_dwarfdie, &root_die->die_srclines,
             &root_die->die_srclinescnt, &d_error);

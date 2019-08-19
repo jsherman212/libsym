@@ -391,9 +391,10 @@ void add_additional_location_description(Dwarf_Half whichattr,
     add->locdesc_prev = current;
 }
 
-static struct dwarf_locdesc *create_new_locdesc(int bounded, uint64_t locdesc_lopc, uint64_t locdesc_hipc,
-        Dwarf_Small op, Dwarf_Unsigned opd1,
-        Dwarf_Unsigned opd2, Dwarf_Unsigned opd3, Dwarf_Unsigned offsetforbranch){
+static struct dwarf_locdesc *create_new_locdesc(int bounded,
+        uint64_t locdesc_lopc, uint64_t locdesc_hipc, Dwarf_Small op,
+        Dwarf_Unsigned opd1, Dwarf_Unsigned opd2, Dwarf_Unsigned opd3,
+        Dwarf_Unsigned offsetforbranch){
     struct dwarf_locdesc *locdesc = calloc(1, sizeof(struct dwarf_locdesc));
 
     if(bounded){
@@ -417,8 +418,9 @@ struct dwarf_locdesc *copy_locdesc(struct dwarf_locdesc *based_on){
         return NULL;
 
     struct dwarf_locdesc *root = create_new_locdesc(based_on->locdesc_bounded,
-            based_on->locdesc_lopc, based_on->locdesc_hipc, based_on->locdesc_op,
-            based_on->locdesc_opd1, based_on->locdesc_opd2, based_on->locdesc_opd3,
+            based_on->locdesc_lopc, based_on->locdesc_hipc,
+            based_on->locdesc_op, based_on->locdesc_opd1,
+            based_on->locdesc_opd2, based_on->locdesc_opd3,
             based_on->locdesc_offsetforbranch);
 
     struct dwarf_locdesc *paramcurrent = based_on->locdesc_next;
@@ -445,7 +447,8 @@ struct dwarf_locdesc *copy_locdesc(struct dwarf_locdesc *based_on){
 void *create_location_description(Dwarf_Small loclist_source,
         uint64_t locdesc_lopc, uint64_t locdesc_hipc,
         Dwarf_Small op, Dwarf_Unsigned opd1,
-        Dwarf_Unsigned opd2, Dwarf_Unsigned opd3, Dwarf_Unsigned offsetforbranch){
+        Dwarf_Unsigned opd2, Dwarf_Unsigned opd3,
+        Dwarf_Unsigned offsetforbranch){
     int bounded = 0;
 
     if(loclist_source == LOCATION_LIST_ENTRY)

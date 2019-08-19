@@ -30,7 +30,7 @@ static int _concat_internal(char **dst, const char *src, va_list args){
         *dst = NULL;
     }
 
-    int w = vsnprintf(&dst1[dstlen], total, src, args1);
+    int w = vsnprintf(dst1 + dstlen, total, src, args1);
 
     va_end(args1);
 

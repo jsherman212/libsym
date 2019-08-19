@@ -1,5 +1,5 @@
 CC=clang
-CFLAGS=-fno-pie -g -pedantic -Wno-gnu-zero-variadic-macro-arguments -Wno-gnu-case-range
+CFLAGS=-fno-pie -g -fsanitize=address -pedantic -Wno-gnu-zero-variadic-macro-arguments -Wno-gnu-case-range
 LDFLAGS=-ldwarf -lelf -lz
 
 driver : driver.o sym.o linkedlist.o compunit.o die.o dexpr.o symerr.o str.o

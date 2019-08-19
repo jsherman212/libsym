@@ -50,7 +50,6 @@ enum {
     DIE_NOT_VARIABLE_DIE
 };
 
-
 void errclear(sym_error_t *);
 const char *errmsg(sym_error_t);
 void errset(sym_error_t *, unsigned, unsigned);
